@@ -12,10 +12,13 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Extract the deepsea predictions of one tf.Deepsea prediction is sample based. The output of this script is TF based.')
 
+
+print '==========',__doc__
+
 if __doc__ is None:
     parser.add_argument("--chr",     help="The chr wanted to compute", default="chr22")
     parser.add_argument("--mode", help="Output type: test(only first 1000 variants); all(all the variants)", default="all")
-    parser.add_argument('--batch_name', help = "462samples or 54samples" )
+    parser.add_argument('--batch_name', help = "462samples or 54samples", default = '462samples' )
     args = parser.parse_args()
     chr_num = args.chr
     mode_str = args.mode
@@ -60,7 +63,7 @@ print peak_file_df_rmdup.head()
 ############################
 
 loc_tf_list = ['ctcf','ebf1']
-variation_file_list = my.f_shell_cmd( "find %s -name 'NA*.diff'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
+variation_file_list = my.f_shell_cmd( "find %s -name '*.diff'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
 
 variation_data = pd.read_csv(variation_file_list[0], sep =',')
 loc_tf_list = list(set( [ feature.split('|')[1].lower() for feature in my.grep_list('GM12878',variation_data.columns.values)]))
@@ -70,6 +73,10 @@ logging.info('Number of features %s' % len(loc_tf_list) )
 tf_variation_dir = '%s/output/tf_variation/%s/%s' % (batch_output_dir, mode_str, chr_num)
 my.f_ensure_make_dir(tf_variation_dir)
 target_cell = 'gm12878'
+
+
+
+
 
 for loc_tf in loc_tf_list:
 #for loc_tf in ['c-fos']:
@@ -95,7 +102,7 @@ for loc_tf in loc_tf_list:
         variation_data['start'] = variation_data['pos']
         variation_data['end'] =  variation_data['pos'] + 1
         #print variation_table.head()
-
+        
         #extract_variation_data from variation_table
         tf_variation_cols = my.grep_list('%s.*%s'%(target_cell, loc_tf), variation_data.columns)
 
@@ -117,7 +124,7 @@ for loc_tf in loc_tf_list:
         #Intersect with the tf_binding regions.
         tf_variation_data = tf_regions_table.overlap_with_feature_bed(tmp_bed_file, 3, value_name=sample_id)
         #print tf_regions_table.data.shape
-
+        
         #print tf_variation_data.head()
         
         #Aggregete the impact for the same regions
@@ -128,6 +135,8 @@ for loc_tf in loc_tf_list:
         tf_regions_table.merge_feature(agg_variation_data)
 
         os.remove(tmp_bed_file)
+
+
     os.remove(tf_regions_table.loc_file)
 
 tf_file_list = my.f_shell_cmd( "find %s -name '*_matrix.txt'"%(tf_variation_dir), quiet = True).split('\n')[0:-1]
