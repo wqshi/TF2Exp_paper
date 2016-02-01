@@ -26,17 +26,17 @@ if __doc__ is None:
 else:
     chr_num = 'chr22'
     mode_str = 'all'
-    batch_name = '54samples'
+    batch_name = '54samples_het'
 batch_output_dir = f_get_batch_output_dir(batch_name)
 
 tf_dir = '%s/data/raw_data/tf/encode_peaks/' % project_dir
-deepsea_dir = '%s/deep_result/%s/%s/' % (batch_output_dir, mode_str ,chr_num)
+deepsea_dir = '%s/deep_result/%s/%s/evalue/het/' % (batch_output_dir, mode_str ,chr_num)
 
 #deepsea_data = pd.read_csv('%s/infile.head.txt'%deepsea_dir, sep = ',')
 
 peak_list_raw = my.f_shell_cmd( "find %s -name '*gm12878-*.narrowPeak'"%(tf_dir), quiet = True).split('\n')
 
-black_list = my.grep_list(".*(--|Rep[1-9]|-myc|-pu1)", peak_list_raw)
+black_list = my.grep_list(".*(--|Rep[1-9]|-myc|encode-)", peak_list_raw)
 peak_list = list(set(peak_list_raw) - set(['']) - set(black_list))
 
 
@@ -76,12 +76,16 @@ target_cell = 'gm12878'
 
 
 
-
+#Manually 
+tf_name_pd = pd.DataFrame(data = [loc_tf_list, loc_tf_list]).T
+tf_name_pd.columns = ['tf', 'rename']
+tf_name_pd.to_csv('%s/data/raw_data/tf_name_match.txt'%project_dir, index = False, sep='\t' )
+print tf_name_pd.head()
 
 for loc_tf in loc_tf_list:
 #for loc_tf in ['c-fos']:
     try:
-        tf_peak_file = peak_file_df_rmdup.ix[peak_file_df_rmdup.tf == loc_tf, 'file_path'].tolist()[0]
+        tf_peak_file = peak_file_df_rmdup.ix[peak_file_df_rmdup.tf == loc_tf.replace('-','').replace('.',''), 'file_path'].tolist()[0]
     except:
         logging.error("Don't find the peak file for %s " % loc_tf)
         continue
@@ -97,11 +101,12 @@ for loc_tf in loc_tf_list:
     print tf_regions_table.file_path
     
     for variation_file in variation_file_list:
-        sample_id = os.path.basename(variation_file).replace('.diff', '')
+        sample_id = os.path.basename(variation_file).split('.')[0]
         variation_data = pd.read_csv(variation_file, sep =',')
         variation_data['start'] = variation_data['pos']
         variation_data['end'] =  variation_data['pos'] + 1
-        #print variation_table.head()
+        
+        #print variation_data.ix[:,0:10].head()
         
         #extract_variation_data from variation_table
         tf_variation_cols = my.grep_list('%s.*%s'%(target_cell, loc_tf), variation_data.columns)
