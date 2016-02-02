@@ -8,6 +8,10 @@ import re
 import tempfile
 #reload(p_region_table)
 
+from joblib import Parallel, delayed  
+import multiprocessing
+num_cores = multiprocessing.cpu_count()-2
+print num_cores
 import argparse
 
 parser = argparse.ArgumentParser(description='Extract the deepsea predictions of one tf.Deepsea prediction is sample based. The output of this script is TF based.')
@@ -26,7 +30,7 @@ if __doc__ is None:
 else:
     chr_num = 'chr22'
     mode_str = 'all'
-    batch_name = '54samples_het'
+    batch_name = '462samples_sailfish'
 batch_output_dir = f_get_batch_output_dir(batch_name)
 
 tf_dir = '%s/data/raw_data/tf/encode_peaks/' % project_dir
@@ -82,13 +86,13 @@ tf_name_pd.columns = ['tf', 'rename']
 tf_name_pd.to_csv('%s/data/raw_data/tf_name_match.txt'%project_dir, index = False, sep='\t' )
 print tf_name_pd.head()
 
-for loc_tf in loc_tf_list:
-#for loc_tf in ['c-fos']:
+def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, tf_regions_table):
+
     try:
         tf_peak_file = peak_file_df_rmdup.ix[peak_file_df_rmdup.tf == loc_tf.replace('-','').replace('.',''), 'file_path'].tolist()[0]
     except:
         logging.error("Don't find the peak file for %s " % loc_tf)
-        continue
+        return 0
     print tf_peak_file
     binding_regions = pd.io.parsers.read_csv(tf_peak_file, sep="\t", header=None).ix[:,0:2]
     
@@ -100,14 +104,17 @@ for loc_tf in loc_tf_list:
 
     print tf_regions_table.file_path
     
+    tf_regions_table.extract_bed()
+    
     for variation_file in variation_file_list:
+    
         sample_id = os.path.basename(variation_file).split('.')[0]
         variation_data = pd.read_csv(variation_file, sep =',')
         variation_data['start'] = variation_data['pos']
         variation_data['end'] =  variation_data['pos'] + 1
-        
+
         #print variation_data.ix[:,0:10].head()
-        
+
         #extract_variation_data from variation_table
         tf_variation_cols = my.grep_list('%s.*%s'%(target_cell, loc_tf), variation_data.columns)
 
@@ -121,17 +128,17 @@ for loc_tf in loc_tf_list:
         tmp_bed_file = tf_variation_dir + '/' + my.f_generate_tmp_file_name('bed')
 
         tf_selected_column = tf_variation_cols[0]
-        
+
         variation_data.ix[:,['chr', 'start', 'end', tf_selected_column ]].to_csv(tmp_bed_file , header = False, index = False ,sep = '\t')
         #print variation_data.columns
         #print variation_data.shape
-        
+
         #Intersect with the tf_binding regions.
         tf_variation_data = tf_regions_table.overlap_with_feature_bed(tmp_bed_file, 3, value_name=sample_id)
         #print tf_regions_table.data.shape
-        
+
         #print tf_variation_data.head()
-        
+
         #Aggregete the impact for the same regions
         tf_variation_data[sample_id] = tf_variation_data[sample_id].astype(float)        
         agg_variation_data = tf_variation_data.groupby(['chr', 'start'], as_index=False).sum()
@@ -141,8 +148,13 @@ for loc_tf in loc_tf_list:
 
         os.remove(tmp_bed_file)
 
+    if tf_regions_table.loc_file is not None:
+        os.remove(tf_regions_table.loc_file)
 
-    os.remove(tf_regions_table.loc_file)
+
+Parallel(n_jobs=num_cores)(delayed(parse_one_tf)(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, tf_regions_table) for loc_tf in loc_tf_list)  
+
+
 
 tf_file_list = my.f_shell_cmd( "find %s -name '*_matrix.txt'"%(tf_variation_dir), quiet = True).split('\n')[0:-1]
 tf_name_list = [ os.path.basename(tf_file).replace('_matrix.txt', '').upper() for tf_file in tf_file_list]
