@@ -19,8 +19,50 @@ rna_seq_raw = read.csv(file = f_p('%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX', batch_o
 rownames(rna_seq_raw) = rna_seq_raw$gene
 
 rna_seq_raw$gene = NULL
-rna_seq_raw[is.na(rna_seq_raw)] = 0
 
+sum(rowSums(is.na(rna_seq_raw)) > 0)
+
+
+
+selected_genes = c('ENSG00000177663.9', 'ENSG00000235478.1')
+selected_indivs = c('HG00145', 'HG00310', 'HG00171')
+
+
+##Quantile normalization
+rna_seq_quantile = normalize.quantiles(as.matrix(rna_seq_raw))
+colnames(rna_seq_quantile) = colnames(rna_seq_raw)
+
+head(rna_seq_quantile[,1:10])
+head(rna_seq_raw[,1:10])
+
+rna_seq = scale(rna_seq_raw)
+
+rna_seq_scale = f_row_scale(rna_seq_quantile)
+
+head(rna_seq_scale[,1:10])
+head(rna_seq[,1:10])
+dim(rna_seq_scale)
+
+
+gene = data.frame( gene = rownames(rna_seq_raw) )
+write_data = cbind(gene, rna_seq_scale)
+rownames(write_data) = write_data$gene
+#head(write_data[,1:10])
+
+cat('Check it right:', '\n')
+#ENSG00000177663.9  0.2461960 -0.6264528 -0.7476451
+#ENSG00000235478.1 -0.3305492  4.4925357 -0.3305492
+print(write_data[selected_genes, selected_indivs])
+write.table(write_data, file = './data/462samples_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+stop()
+
+
+#################################
+#################################
+
+#rna_seq_raw[is.na(rna_seq_raw)] = 0 #This is wrong
+dim(rna_seq_raw)
+sample_cols = grep('(NA|HG)[0-9]+', colnames(rna_seq_raw),value = T)
 head(rna_seq_raw)
 
 library(reshape2)
@@ -43,37 +85,13 @@ gene_plot <- ggplot(long_gene_exp, aes(x = value, group = gene, color = gene)) +
 
 
 
-##Quantile normalization
-
-rna_seq_quantile = normalize.quantiles(as.matrix(rna_seq_raw))
-colnames(rna_seq_quantile) = colnames(rna_seq_raw)
-
-head(rna_seq_quantile[,1:10])
-head(rna_seq_raw[,1:10])
-
-rna_seq = scale(rna_seq_raw)
-
-rna_seq_scale = f_row_scale(rna_seq_quantile)
-
-head(rna_seq_scale[,1:10])
-
-dim(rna_seq_scale)
-
-
-gene = data.frame( gene = rownames(rna_seq_raw) )
-write_data = cbind(gene, rna_seq_scale)
-#head(write_data[,1:10])
-
-
-write.table(write_data, file = './data/462samples_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
-
 ##########variance stablize and quantile normalization
 peaksMat = as.matrix(rna_seq_raw)
 peaksMat_asinh = asinh(peaksMat) 
 
 asinh_quantile = normalize.quantiles(as.matrix(peaksMat_asinh))
 colnames(asinh_quantile) = colnames(rna_seq_raw)
-
+rownames(asinh_quantile) = rownames(rna_seq_raw)
 
 asinh_scale = f_row_scale(asinh_quantile)
 
@@ -81,14 +99,23 @@ asinh_scale = f_row_scale(asinh_quantile)
 
 gene = data.frame( gene = rownames(rna_seq_raw) )
 asinh_write_data = cbind(gene, asinh_scale)
-#head(write_data[,1:10])
-
+rownames(asinh_write_data) = asinh_write_data$gene
+dim(asinh_write_data)
+dim(gene)
+head(asinh_write_data[,1:10])
+asinh_write_data[selected_genes, selected_indivs]
+asinh_quantile[selected_genes, selected_indivs]
+rna_seq_raw[selected_genes[2],selected_indivs]
 write.table(asinh_write_data, file = './data/462samples_var_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
 
 
+library(matrixStats )
+rMs = rowMeans(rna_seq_quantile, na.rm=TRUE)
+rSds = rowSds(rna_seq_quantile, na.rm=TRUE)
+peaksMat_asinh_std = (rna_seq_quantile - rMs)/rSds
 
-
-
+head(peaksMat_asinh_std[,1:2])
+head(rna_seq_scale[,1:2])
 
 #################################
 
