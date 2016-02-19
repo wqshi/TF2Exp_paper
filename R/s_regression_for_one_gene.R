@@ -49,6 +49,7 @@ if (is.null(opt$batch_name)){
     
     tuneGrid = tune_list[[train_model]]
 }
+ddd
 
 
 chr_str = 'chr22'
