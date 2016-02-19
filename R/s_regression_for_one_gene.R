@@ -32,7 +32,8 @@ if (is.null(opt$batch_name)){
     test_flag = TRUE
     tuneGrid = NULL
     train_model = 'enet'
-    gene = 'ENSG00000235478.1'
+    #gene = 'ENSG00000235478.1'
+    gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
     #gene='ENSG00000196576.10' : largest memory
 }else{
     batch_name = opt$batch_name
@@ -49,7 +50,7 @@ if (is.null(opt$batch_name)){
     
     tuneGrid = tune_list[[train_model]]
 }
-XXXX
+
 
 
 chr_str = 'chr22'
@@ -101,7 +102,7 @@ sample_info = read.table(f_p('%s/chr_vcf_files/integrated_call_samples_v3.201305
 miRNA_target_table = read.table('./data/raw_data/miRNA/miRNA_ensemble.txt', header = TRUE)
 miRNA_expression = read.table('./data/raw_data/miRNA/GD452.MirnaQuantCount.1.2N.50FN.samplename.resk10.txt', header = TRUE)
 
-i = 10
+i = 1
 non_sample_cols = setdiff(colnames(expression_data), sample_cols)
 sample_cols = intersect(sample_cols, colnames(miRNA_expression))
 length(sample_cols)
@@ -164,7 +165,7 @@ for (i in 1:length(genes_names)){
     dim(transcript_data)
     head(transcript_data[,1:15])
     transcript_data = transcript_data[!duplicated(transcript_data),]
-    head(transcript_data)
+    dim(transcript_data)
     table(transcript_data$feature)
     rownames(transcript_data) = make.names(paste0(transcript_data$type, '-',transcript_data$feature), unique = T)
     transcript_data[is.na(transcript_data)]=0 #Some TF regions don't have variations 
@@ -183,13 +184,13 @@ for (i in 1:length(genes_names)){
     head(scaled_tmp[,1:15])
     dim(tmp)
     
-    transcript_data = transcript_data[!duplicated(transcript_data[, non_sample_cols[1:8]]),]
+    #transcript_data = transcript_data[!duplicated(transcript_data[, non_sample_cols[1:8]]),]
     dim(transcript_data)
     
     transcript_data_tf_concentration = transcript_data
     dim(transcript_data)
     dim(scaled_tmp)
-    transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * 2
+    transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
     #scaled_tmp[, sample_cols] * 2
 
     
@@ -246,7 +247,7 @@ for (i in 1:length(genes_names)){
     if(nrow(pair_df) > 0){
         pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
         promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
-        #str(promoter_pairs)
+        str(promoter_pairs)
 
         if(nrow(promoter_pairs) > 0){
             
@@ -257,6 +258,7 @@ for (i in 1:length(genes_names)){
             
             dim(transcript_data_merge)
             transcript_data_merge = rbind(transcript_data_merge, promoter_interaction_impact)
+            cat('Interaction terms', dim(promoter_interaction_impact), '\n')
         }else{
             cat('Empty promoter-enhancers!', '\n')
         }
@@ -295,7 +297,7 @@ for (i in 1:length(genes_names)){
         correlated_miRNA_expression$TargetID = NULL
         final_train_data = cbind(final_train_data, t(correlated_miRNA_expression[rownames(final_train_data)]))
     }
-
+    cat('After adding')
     #ead(final_train_data)
  
     
