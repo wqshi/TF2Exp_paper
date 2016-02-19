@@ -1,6 +1,7 @@
 
 
 setwd('~/expression_var/R/')
+
 source('~/R/s_function.R', chdir = TRUE)
 source('s_gene_regression_fun.R')
 library(doMC)
@@ -13,17 +14,18 @@ library("optparse")
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
     make_option(c("--add_histone"), type="character", default='TRUE', help="output file name [default= %default]", metavar="character"),
-    make_option(c("--add_miRNA"), type="character", default='TRUE', help="Add miRNA or not", metavar="character"),
+    make_option(c("--add_miRNA"), type="character", default='FALSE', help="Add miRNA or not", metavar="character"),
+    make_option(c("--add_TF_exp"), type="character", default='FALSE', help="Add TF expression levels into the model or not", metavar="character"),
     make_option(c("--test"), type="character", default=NULL, help="output file name [default= %default]", metavar="character"),
     make_option(c("--gene"), type="character", default='', help="The name of gene", metavar="character"),
-    make_option(c("--model"), type="character", default='enet', help="The machine learning method used, eg. enet, and rfe", metavar="character")
-    
+    make_option(c("--model"), type="character", default='enet', help="The machine learning method used, eg. enet, and rfe", metavar="character"),
+    make_option(c("--output_mode"), type="character", default='glmnet', help="output name for the results, create a seperate fold to store the results", metavar="character")
 );
 
 
 opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
-
+str(opt)
 if (is.null(opt$batch_name)){
     #batch_name = '54samples_evalue'
     batch_name = '462samples_sailfish_quantile'
@@ -31,10 +33,12 @@ if (is.null(opt$batch_name)){
     add_miRNA = TRUE
     test_flag = TRUE
     tuneGrid = NULL
-    train_model = 'enet'
+    train_model = 'glmnet'
     #gene = 'ENSG00000235478.1'
     gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
     #gene='ENSG00000196576.10' : largest memory
+    permutation_flag = TRUE
+    output_mode = 'glmnet'
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
@@ -42,13 +46,13 @@ if (is.null(opt$batch_name)){
     test_flag = opt$test == 'TRUE'
     train_model = opt$model
     gene=opt$gene
+    output_mode = opt$output_mode
     cat('Test flag :', test_flag, 'Model ', train_model, '\n')
-
-    tune_list = list( enet = tuneGrid <- expand.grid(.lambda = c(0, 0.001, 0.01, 0.1), .fraction = seq(.05, 1, length = 20 )),
-        glm= expand.grid(.alpha = c(0, .1, .2, .4, .6, .8, 1), .lambda = seq(.01, .2, length = 5))
-        )
-    
-    tuneGrid = tune_list[[train_model]]
+    #tune_list = list( enet = tuneGrid <- expand.grid(.lambda = c(0, 0.001, 0.01, 0.1), .fraction = seq(.05, 1, length = 20 )),
+    #    glm= expand.grid(.alpha = c(0, .1, .2, .4, .6, .8, 1), .lambda = seq(.01, .2, length = 5))
+    #    )
+    #tuneGrid = tune_list[[train_model]]
+    tuneGrid = NULL
 }
 
 
@@ -63,16 +67,15 @@ output_dir = f_p('./data/%s/', batch_name)
 expression_file = f_p('%s/rnaseq/%s/%s.txt', output_dir, chr_str, gene)
 
 expression_data = read.table(expression_file, header = TRUE, na.strings = 'NA')
-head(expression_data[,1:10])
-tail(expression_data[,1:20])
+#head(expression_data[,1:10])
+#tail(expression_data[,1:20])
 
 
 cat('Number regulatory regions and empty fragment ids', '\n')
-table(expression_data$type, expression_data$hic_fragment_id == '.')
+#table(expression_data$type, expression_data$hic_fragment_id == '.')
 
-table(expression_data$type, expression_data$feature)
-
-colnames(expression_data)
+#table(expression_data$type, expression_data$feature)
+#colnames(expression_data)
 
 
 #Get the expressed transcripts
@@ -107,17 +110,16 @@ non_sample_cols = setdiff(colnames(expression_data), sample_cols)
 sample_cols = intersect(sample_cols, colnames(miRNA_expression))
 length(sample_cols)
 
-print(non_sample_cols)
+#print(non_sample_cols)
 
 #Read the TF expression data.
 tf_gene_id = read.table('./data/raw_data/rnaseq/tf_ensemble_id.txt', header = T, stringsAsFactors = FALSE)
 tf_gene_id
 rownames(tf_gene_id) = tf_gene_id$tf
 expression_data$feature_tf =''
-str(expression_data)
-head(expression_data)
+#str(expression_data)
+head10(expression_data)
 
-tf_gene_id['P300',]
 
 expression_data$feature_tf = (tf_gene_id[expression_data$feature,'external_name'])
 
@@ -140,28 +142,17 @@ dim(tf_gene_expression)
 
 rownames(tf_gene_expression) = tf_gene_id$tf
 
-
-head(tf_gene_expression,1)
-
-range(tf_gene_expression[1, sample_cols])
-
 valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
 
-head(valid_interaction)
-
-sum(duplicated(expression_data[, non_sample_cols[1:8]]))
 
 for (i in 1:length(genes_names)){
-    if(i == 3 & test_flag == TRUE){
-        print( 'First 500 genes')
-        break
-    }
     
     transcript_id = genes_names[i]
     cat('\n','============',i, transcript_id, '==============','\n')
     sum(gene_with_regulatory_elements[transcript_id,])
     gene_with_regulatory_elements[transcript_id,]
     transcript_data = expression_data[expression_data$gene == transcript_id,]
+    transcript_data[1,]
     dim(transcript_data)
     head(transcript_data[,1:15])
     transcript_data = transcript_data[!duplicated(transcript_data),]
@@ -170,7 +161,7 @@ for (i in 1:length(genes_names)){
     rownames(transcript_data) = make.names(paste0(transcript_data$type, '-',transcript_data$feature), unique = T)
     transcript_data[is.na(transcript_data)]=0 #Some TF regions don't have variations 
     sum(is.na(transcript_data))
-    head(transcript_data)
+    head10(transcript_data)
 
     
     #######Add the TF concentration data#########
@@ -190,11 +181,30 @@ for (i in 1:length(genes_names)){
     transcript_data_tf_concentration = transcript_data
     dim(transcript_data)
     dim(scaled_tmp)
-    transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
-    #scaled_tmp[, sample_cols] * 2
-
+    head10(transcript_data)
     
-    head(transcript_data[,1:10])
+    ###Add permutation within features.#####
+    if (permutation_flag == TRUE){
+
+        sum(rowSums(is.na(transcript_data)) < 0.5 * nrow(transcript_data))
+        transcript_data[7,]
+        
+        set.seed(11)
+        features = setdiff(rownames(transcript_data), c('gene.RNASEQ'))
+        permutation_index = sample(features, size = length(features))
+        cat('Permuate features:', permutation_index[1:5], '\n')
+        cat('Original features:', features[1:5], '\n')
+        transcript_data[features, sample_cols] = transcript_data[permutation_index, sample_cols]
+        
+    }
+
+
+    transcript_data[1,]
+    transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
+    transcript_data_tf_concentration[7,]
+    rowSums( transcript_data_tf_concentration == 0)
+        
+    #head(transcript_data[,1:10])
     ################
     
     ##Add TF-TF interactions
@@ -275,7 +285,8 @@ for (i in 1:length(genes_names)){
     rm(train_data)
     
     train_data2 = as.data.frame(t(train_data_rmdup))
-    #head(train_data2)
+    
+    head10(train_data2)
     if (add_histone == FALSE){
         none_histone_cols = grep('H3K',colnames(train_data2), value = TRUE, invert = TRUE)
         final_train_data = train_data2[, none_histone_cols]
@@ -316,12 +327,15 @@ for (i in 1:length(genes_names)){
     additional_data[,sample_cols] = t(final_train_data[sample_cols, additional_cols])
     
     transcript_data = rbind(transcript_data, additional_data)
-    train_model = 'enet'
-    
+    #train_model = 'glmnet'
+    #train_model = 'enet'
+    final_train_data2= scale(final_train_data[,1:100])
+    head(final_train_data2)
     result <- try(
                         fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = train_model, tuneGrid),
                         silent=TRUE
                        )
+    
     if (class(result) == "try-error"){
         print(result)
         cat('Error in ', transcript_id, '\n')
@@ -358,14 +372,15 @@ for (i in 1:length(genes_names)){
     #print(fit$results)
     max_performance = fit$max_performance
     RsquaredSD =fit$results[rownames(fit$bestTune), 'RsquaredSD' ]
-    
+    print(fit$results)
     cat("\n",'performance', max_performance, 'SD', RsquaredSD, 'Number of features:', nrow(features_df) )
     prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features)))
     #print(prediction_performance)
 }
 
-
-output_file = f_p('%s/rnaseq/%s/%s.%s', output_dir, chr_str, gene ,train_model )
+results_dir = f_p('%s/rnaseq/%s/%s/', output_dir, chr_str, output_mode)
+dir.create(results_dir)
+output_file = f_p('%s/%s.enet',  results_dir, gene)
 
 
 prediction_performance= prediction_performance[-1,]
@@ -376,12 +391,3 @@ write.table(prediction_performance, file = output_file , sep = '\t', quote=FALSE
 
 head(collected_features)
 write.table(collected_features, file = f_p('%s.features', output_file), sep = '\t', quote = FALSE, row.names =FALSE)
-
-
-
-
-
-
-
-
-
