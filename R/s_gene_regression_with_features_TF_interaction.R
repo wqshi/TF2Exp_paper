@@ -93,7 +93,7 @@ cat('The number of regulated transcripts:', length(regulated_genes_names), '\n')
 #Get the inverstigeed genes
 genes_names = intersect(expressed_transcripts, regulated_genes_names)
 cat('The number of investigated transcripts:', length(genes_names), '\n')
-
+0
 
 length(genes_names)
 
@@ -269,7 +269,7 @@ for (i in 1:length(genes_names)){
     }else{
         final_train_data  = train_data2
     }
- o
+ 
     
     related_miRNAs = subset(miRNA_target_table, ensembl_gene_id == str_split(transcript_id, '[.]')[[1]][1] )$miRNA
 
