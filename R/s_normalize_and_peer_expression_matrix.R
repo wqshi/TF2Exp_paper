@@ -4,11 +4,21 @@ source('~/R/s_function.R', chdir = TRUE)
 #source("http://bioconductor.org/biocLite.R")
 #biocLite("preprocessCore")
 library(preprocessCore)
-
+library(matrixStats)
+library(reshape2)
 
 f_row_scale <- function(df){
     return (t(scale(t(df))))
 }
+
+f_quantile <- function(input_data){
+
+    data_quantile = normalize.quantiles(as.matrix(input_data))
+    colnames(data_quantile) = colnames(input_data)
+    rownames(data_quantile) = rownames(input_data)
+    return (data_quantile)
+}
+
 
 
 batch_name = '462samples_sailfish'
@@ -17,20 +27,35 @@ batch_output_dir = f_p('./data/%s/', batch_name)
 
 rna_seq_raw = read.csv(file = f_p('%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX', batch_output_dir) , sep=' ', header =TRUE)
 rownames(rna_seq_raw) = rna_seq_raw$gene
-
 rna_seq_raw$gene = NULL
-
-sum(rowSums(is.na(rna_seq_raw)) > 0)
-
 
 
 selected_genes = c('ENSG00000177663.9', 'ENSG00000235478.1')
 selected_indivs = c('HG00145', 'HG00310', 'HG00171')
 
 
-##Quantile normalization
+
+########Check the data ####################
+#rna_seq_raw[is.na(rna_seq_raw)] = 0 #This is wrong
+sample_cols = grep('(NA|HG)[0-9]+', colnames(rna_seq_raw),value = T)
+head10(rna_seq_raw)
+
+set.seed(11)
+#Check the assumption for quantile normalization
+random_samples = sample(colnames(rna_seq_raw), size = 15)
+long_exp = melt(rna_seq_raw[, random_samples])
+head(long_exp)
+sample_plot <- ggplot(long_exp, aes(x = value, group = variable, color = variable)) + geom_density() + xlim(c(0,50))
+
+
+
+
+
+##Case1: Quantile normalization the raw gene expression data.
 rna_seq_quantile = normalize.quantiles(as.matrix(rna_seq_raw))
 colnames(rna_seq_quantile) = colnames(rna_seq_raw)
+
+cat('NA rows in the data:',  sum(rowSums(is.na(rna_seq_quantile)) > 0), '\n')
 
 head(rna_seq_quantile[,1:10])
 head(rna_seq_raw[,1:10])
@@ -54,70 +79,75 @@ cat('Check it right:', '\n')
 #ENSG00000235478.1 -0.3305492  4.4925357 -0.3305492
 print(write_data[selected_genes, selected_indivs])
 write.table(write_data, file = './data/462samples_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
-stop()
+
 
 
 #################################
 #################################
+#Case 2: quantile_rmNA: remove the gene with NA expression and zero expression.
 
-#rna_seq_raw[is.na(rna_seq_raw)] = 0 #This is wrong
-dim(rna_seq_raw)
-sample_cols = grep('(NA|HG)[0-9]+', colnames(rna_seq_raw),value = T)
-head(rna_seq_raw)
 
-library(reshape2)
+rnaseq_rmNA = rna_seq_raw[rowSums(is.na(rna_seq_raw)) == 0,]
+cat('Keep', nrow(rnaseq_rmNA), 'out of ', nrow(rna_seq_raw) , 'none-NA genes \n')
 
-set.seed(11)
-#check the assumption for quantile normalization
-random_samples = sample(colnames(rna_seq_raw), size = 15)
-long_exp = melt(rna_seq_raw[, random_samples])
-head(long_exp)
-sample_plot <- ggplot(long_exp, aes(x = value, group = variable, color = variable)) + geom_density() + xlim(c(0,50))
+library(stringr)
+sex.entrezgene = read.table('./data/raw_data/rnaseq/sex.ensemble.genes',sep='\t', header = TRUE)
+row.names(sex.entrezgene) = sex.entrezgene$ensembl_transcript_id
 
-#Check the distribution for genes.
-random_genes = sample(rownames(rna_seq_raw), size = 20)
-long_gene_exp = melt(cbind(gene = random_genes, rna_seq_raw[random_genes,]))
-head(long_gene_exp)
-#This is useless
-gene_plot <- ggplot(long_gene_exp, aes(x = value, group = gene, color = gene)) + geom_density() + xlim(c(0,10))
+rnaseq_rmNA$gene = str_replace( row.names(rnaseq_rmNA) )
+
+grep(sex_pattern, rownames(rnaseq_rmNA), invert = TRUE)
+head10(rnaseq_rmNA)
+
+
+
+rnaseq_clean = rnaseq_rmNA[(rowSds(as.matrix(rnaseq_rmNA)) != 0),]
+cat('Keep', nrow(rnaseq_clean), 'out of ', nrow(rnaseq_rmNA) , 'zero expressed genes \n')
 
 
 
 
 
-##########variance stablize and quantile normalization
-peaksMat = as.matrix(rna_seq_raw)
+
+
+head10(rnaseq_clean)
+
+clean_quantile = f_quantile(rnaseq_clean)
+clean_quantile_scale = f_row_scale(clean_quantile)
+f_check_na(clean_quantile_scale)
+head10(clean_quantile_scale)
+gene = data.frame( gene = rownames(clean_quantile_scale) )
+write_data = cbind(gene, clean_quantile_scale)
+rownames(write_data) = write_data$gene
+#head(write_data[,1:10])
+write.table(write_data, file = './data/462samples_quantile_rmNA/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+
+
+
+
+################################
+################################
+#Case 3: variance stablize before quantile_rmNA
+
+peaksMat = as.matrix(rnaseq_clean)
 peaksMat_asinh = asinh(peaksMat) 
 
-asinh_quantile = normalize.quantiles(as.matrix(peaksMat_asinh))
-colnames(asinh_quantile) = colnames(rna_seq_raw)
-rownames(asinh_quantile) = rownames(rna_seq_raw)
-
+head10(peaksMat_asinh)
+asinh_quantile = f_quantile(peaksMat_asinh)
 asinh_scale = f_row_scale(asinh_quantile)
 
-
-
-gene = data.frame( gene = rownames(rna_seq_raw) )
+gene = data.frame( gene = rownames(asinh_scale) )
 asinh_write_data = cbind(gene, asinh_scale)
-rownames(asinh_write_data) = asinh_write_data$gene
-dim(asinh_write_data)
-dim(gene)
-head(asinh_write_data[,1:10])
-asinh_write_data[selected_genes, selected_indivs]
-asinh_quantile[selected_genes, selected_indivs]
-rna_seq_raw[selected_genes[2],selected_indivs]
 write.table(asinh_write_data, file = './data/462samples_var_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
 
 
-library(matrixStats )
-rMs = rowMeans(rna_seq_quantile, na.rm=TRUE)
-rSds = rowSds(rna_seq_quantile, na.rm=TRUE)
-peaksMat_asinh_std = (rna_seq_quantile - rMs)/rSds
 
-head(peaksMat_asinh_std[,1:2])
-head(rna_seq_scale[,1:2])
-
+stop()
 #################################
+#################################
+
+
+
 
 PEER_plotModel <- function(model){
     par(mfrow=c(2,1))
