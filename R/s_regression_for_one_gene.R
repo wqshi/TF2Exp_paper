@@ -243,7 +243,6 @@ for (i in 1:length(genes_names)){
             dim(tf_interaction_impact)
             head(tf_interaction_impact)
         
-
             tf_interaction_impact$.id = NULL
             row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
             tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
