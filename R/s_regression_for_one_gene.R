@@ -19,7 +19,8 @@ option_list = list(
     make_option(c("--test"), type="character", default=NULL, help="output file name [default= %default]", metavar="character"),
     make_option(c("--gene"), type="character", default='', help="The name of gene", metavar="character"),
     make_option(c("--model"), type="character", default='enet', help="The machine learning method used, eg. enet, and rfe", metavar="character"),
-    make_option(c("--output_mode"), type="character", default='glmnet', help="output name for the results, create a seperate fold to store the results", metavar="character")
+    make_option(c("--output_mode"), type="character", default='glmnet', help="output name for the results, create a seperate fold to store the results", metavar="character"),
+    make_option(c("--chr"), type="character", default='chr22', help="Chromosome name", metavar="character")
 );
 
 
@@ -31,18 +32,20 @@ if (is.null(opt$batch_name)){
     batch_name = '462samples_sailfish_quantile'
     add_histone = TRUE
     add_miRNA = TRUE
+    add_TF_exp = TRUE
     test_flag = TRUE
     tuneGrid = NULL
     train_model = 'glmnet'
     #gene = 'ENSG00000235478.1'
     gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
     #gene='ENSG00000196576.10' : largest memory
-    permutation_flag = TRUE
+    permutation_flag = FALSE
     output_mode = 'glmnet'
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
     add_miRNA = opt$add_miRNA == 'TRUE'
+    add_TF_exp = opt$add_TF_exp == 'TRUE'
     test_flag = opt$test == 'TRUE'
     train_model = opt$model
     gene=opt$gene
@@ -53,6 +56,7 @@ if (is.null(opt$batch_name)){
     #    )
     #tuneGrid = tune_list[[train_model]]
     tuneGrid = NULL
+    permutation_flag = FALSE
 }
 
 
@@ -133,9 +137,6 @@ rownames(gene_expression) = gene_expression$transcript_id
 #str(tf_gene_id)
 
 
-
-
-
 tf_gene_expression = gene_expression[tf_gene_id$ensembl_gene_id,]
 dim(tf_gene_expression)
 #head(tf_gene_expression[,1:20])
@@ -185,7 +186,6 @@ for (i in 1:length(genes_names)){
     
     ###Add permutation within features.#####
     if (permutation_flag == TRUE){
-
         sum(rowSums(is.na(transcript_data)) < 0.5 * nrow(transcript_data))
         transcript_data[7,]
         
@@ -198,12 +198,14 @@ for (i in 1:length(genes_names)){
         
     }
 
-
-    transcript_data[1,]
-    transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
-    transcript_data_tf_concentration[7,]
-    rowSums( transcript_data_tf_concentration == 0)
-        
+    if (add_TF_exp == TRUE){
+        transcript_data[1,]
+        transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
+        transcript_data_tf_concentration[7,]
+        rowSums( transcript_data_tf_concentration == 0)
+    }
+    
+    
     #head(transcript_data[,1:10])
     ################
     
@@ -237,13 +239,13 @@ for (i in 1:length(genes_names)){
         cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
     
         transcript_data_merge = rbind(transcript_data_tf_concentration, tf_valid_interaction_impact)
+        rm(tf_valid_interaction_impact)
+        rm(tf_interaction_impact)
     }else{
         transcript_data_merge = transcript_data_tf_concentration
     }
 
     rm(transcript_data_tf_concentration)
-    rm(tf_interaction_impact)
-    rm(tf_valid_interaction_impact)
 
     
     ############
@@ -269,13 +271,12 @@ for (i in 1:length(genes_names)){
             dim(transcript_data_merge)
             transcript_data_merge = rbind(transcript_data_merge, promoter_interaction_impact)
             cat('Interaction terms', dim(promoter_interaction_impact), '\n')
+            rm(promoter_interaction_impact)
         }else{
             cat('Empty promoter-enhancers!', '\n')
         }
     }
-    rm(promoter_interaction_impact)
 
-    rownames(transcript_data_merge)
     train_data = transcript_data_merge[,sample_cols]
     train_data[is.na(train_data)] = 0
 
@@ -329,8 +330,6 @@ for (i in 1:length(genes_names)){
     transcript_data = rbind(transcript_data, additional_data)
     #train_model = 'glmnet'
     #train_model = 'enet'
-    final_train_data2= scale(final_train_data[,1:100])
-    head(final_train_data2)
     result <- try(
                         fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = train_model, tuneGrid),
                         silent=TRUE
