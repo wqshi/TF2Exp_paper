@@ -7,9 +7,11 @@ source('s_gene_regression_fun.R')
 library(doMC)
 library(stringr)
 #install.packages('doMC')
-
+#install.packages('futile.logger')
+library(futile.logger)
 library(GenomicRanges)
 library("optparse")
+library(plyr)
 
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
@@ -59,7 +61,7 @@ if (is.null(opt$batch_name)){
     permutation_flag = FALSE
 }
 
-
+flog.info('Begin')
 
 chr_str = 'chr22'
 model_str = 'all'
@@ -145,6 +147,7 @@ rownames(tf_gene_expression) = tf_gene_id$tf
 
 valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
 
+flog.info('After load the data') 
 
 for (i in 1:length(genes_names)){
     
@@ -171,7 +174,6 @@ for (i in 1:length(genes_names)){
     scaled_tmp=t(apply(tmp, MARGIN = 1, FUN = function(X) (X - min(X))/diff(range(X))) + 1)
     scaled_tmp[is.na(scaled_tmp)] = 1 #For the DNASE regions.
 
-
     head(tf_gene_expression)
     head(scaled_tmp[,1:15])
     dim(tmp)
@@ -187,8 +189,7 @@ for (i in 1:length(genes_names)){
     ###Add permutation within features.#####
     if (permutation_flag == TRUE){
         sum(rowSums(is.na(transcript_data)) < 0.5 * nrow(transcript_data))
-        transcript_data[7,]
-        
+        transcript_data[7,]        
         set.seed(11)
         features = setdiff(rownames(transcript_data), c('gene.RNASEQ'))
         permutation_index = sample(features, size = length(features))
@@ -225,22 +226,36 @@ for (i in 1:length(genes_names)){
 
     matches = matches[matches$queryHits != matches$subjectHits, ]
 
+    str(matches)
+     
     if(nrow(matches) > 0){
         #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)    
-        library(plyr)
-        tf_interaction_impact = ldply(  apply(matches, MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
-        dim(tf_interaction_impact)
-        head(tf_interaction_impact)
+        
+        overlap_df=data.frame(matches)
+        str(overlap_df)
+        head(overlap_df)
+        overlap_df$name = paste0(tf_regions[overlap_df$queryHits,'feature_tf'], '-', tf_regions[overlap_df$subjectHits,'feature_tf'] )
+        overlap_pairs = overlap_df[overlap_df$name %in% valid_interaction$V1,]
+        flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
+        str(overlap_df)
+        if(nrow(overlap_pairs)>0){
+            tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            dim(tf_interaction_impact)
+            head(tf_interaction_impact)
+        
 
-
-        tf_interaction_impact$.id = NULL
-        row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
-        tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
-        cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
+            tf_interaction_impact$.id = NULL
+            row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
+            tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
+            cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
     
-        transcript_data_merge = rbind(transcript_data_tf_concentration, tf_valid_interaction_impact)
-        rm(tf_valid_interaction_impact)
-        rm(tf_interaction_impact)
+            transcript_data_merge = rbind(transcript_data_tf_concentration, tf_valid_interaction_impact)
+            rm(tf_valid_interaction_impact)
+            rm(tf_interaction_impact)
+        }else{
+            cat('Empty overlaps','\n')
+        }
+        
     }else{
         transcript_data_merge = transcript_data_tf_concentration
     }
@@ -309,10 +324,7 @@ for (i in 1:length(genes_names)){
         correlated_miRNA_expression$TargetID = NULL
         final_train_data = cbind(final_train_data, t(correlated_miRNA_expression[rownames(final_train_data)]))
     }
-    cat('After adding')
-    #ead(final_train_data)
- 
-    
+
     
     #final_train_data$population = NULL
     final_train_data[,'population'] = as.character(sample_info[rownames(final_train_data), c('pop')])
@@ -328,6 +340,7 @@ for (i in 1:length(genes_names)){
     additional_data[,sample_cols] = t(final_train_data[sample_cols, additional_cols])
     
     transcript_data = rbind(transcript_data, additional_data)
+    flog.info('After add other feature data')
     #train_model = 'glmnet'
     #train_model = 'enet'
     result <- try(
@@ -340,7 +353,7 @@ for (i in 1:length(genes_names)){
         cat('Error in ', transcript_id, '\n')
         next
     }
-
+    flog.info('After training')
 
     key_features = str_replace_all(names(fit$key_features),'`','')
 
