@@ -21,14 +21,17 @@ option_list = list(
     make_option(c("--test"), type="character", default=NULL, help="output file name [default= %default]", metavar="character"),
     make_option(c("--gene"), type="character", default='', help="The name of gene", metavar="character"),
     make_option(c("--model"), type="character", default='enet', help="The machine learning method used, eg. enet, and rfe", metavar="character"),
-    make_option(c("--output_mode"), type="character", default='glmnet', help="output name for the results, create a seperate fold to store the results", metavar="character"),
-    make_option(c("--chr"), type="character", default='chr22', help="Chromosome name", metavar="character")
+    make_option(c("--add_permutation"), type="character", default='FALSE', help="Permutate the train features", metavar="character"),
+    make_option(c("--chr_str"), type="character", default='chr22', help="Chromosome name", metavar="character")
 );
 
 
 opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
+
 str(opt)
+
+
 if (is.null(opt$batch_name)){
     #batch_name = '54samples_evalue'
     batch_name = '462samples_sailfish_quantile'
@@ -42,28 +45,25 @@ if (is.null(opt$batch_name)){
     gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
     #gene='ENSG00000196576.10' : largest memory
     permutation_flag = FALSE
-    output_mode = 'glmnet'
+    chr_str = 'chr22'
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
     add_miRNA = opt$add_miRNA == 'TRUE'
     add_TF_exp = opt$add_TF_exp == 'TRUE'
+    permutation_flag = opt$add_permutation == 'TRUE'
     test_flag = opt$test == 'TRUE'
     train_model = opt$model
     gene=opt$gene
     output_mode = opt$output_mode
     cat('Test flag :', test_flag, 'Model ', train_model, '\n')
-    #tune_list = list( enet = tuneGrid <- expand.grid(.lambda = c(0, 0.001, 0.01, 0.1), .fraction = seq(.05, 1, length = 20 )),
-    #    glm= expand.grid(.alpha = c(0, .1, .2, .4, .6, .8, 1), .lambda = seq(.01, .2, length = 5))
-    #    )
-    #tuneGrid = tune_list[[train_model]]
+    chr_str = opt$chr_str
     tuneGrid = NULL
-    permutation_flag = FALSE
 }
 
 flog.info('Begin')
 
-chr_str = 'chr22'
+
 model_str = 'all'
 cat('Tune Grid is NULL:', is.null(tuneGrid), '\n')
 print(tuneGrid)
@@ -375,8 +375,6 @@ for (i in 1:length(genes_names)){
 
     collected_features = rbind(collected_features, features_df)
     
-    #fit$bestTune
-    
     #fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = 'glmnet')
     
     #head(final_train_data)
@@ -388,11 +386,12 @@ for (i in 1:length(genes_names)){
     prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features)))
     #print(prediction_performance)
 }
-
-results_dir = f_p('%s/rnaseq/%s/%s/', output_dir, chr_str, output_mode)
+opt_name = f_convet_opts_to_output_dir(opt)
+results_dir = f_p('%s/rnaseq/%s/%s/', output_dir, chr_str, opt_name )
 dir.create(results_dir)
 output_file = f_p('%s/%s.enet',  results_dir, gene)
 
+flog.info('Output file: %s', output_file)
 
 prediction_performance= prediction_performance[-1,]
 #prediction_performance$performance = as.numeric(prediction_performance$performance)
