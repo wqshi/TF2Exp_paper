@@ -16,7 +16,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
   #registerDoSNOW(cl)
 #    registerDoMC(cores = 2)
     library(caret)
-    
+    cat('learner name:', learner_name, '\n')
     dim(my_train)
     head(my_train[,1:10])
     zero_cols = nearZeroVar(my_train, freqCut = 90/10)
@@ -59,7 +59,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     #}
         
    
-  library(caret)
+ 
   fitControl <- trainControl(method = "repeatedcv",
                              number = 5,
                              repeats = 3,
@@ -154,7 +154,8 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
 f_caret_classification_return_fit <- function(my_train, target_col, learner_name, tuneGrid,quite=FALSE, metric = 'Accuracy')
 {
     library(caret)
-    
+    library(glmnet)
+    cat('learner name:', learner_name, '\n')
     dim(my_train)
     head(my_train[,1:10])
     zero_cols = nearZeroVar(my_train, freqCut = 90/10)
@@ -197,7 +198,7 @@ f_caret_classification_return_fit <- function(my_train, target_col, learner_name
     #}
         
    
-  library(caret)
+  #library(caret)
   fitControl <- trainControl(method = "repeatedcv",
                              number = 5,
                              repeats = 1,
@@ -270,3 +271,15 @@ f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
 }
 
 
+f_convet_opts_to_output_dir <- function(opt){
+    
+    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode)',names(opt), value = TRUE, invert = TRUE)
+    useful_df=ldply(opt[useful_opts])
+    useful_df$rename=str_replace_all(useful_df$.id, pattern = '_', replacement = '.')
+    useful_df[useful_df$V1 == 'FALSE','rename'] = str_replace_all(useful_df[useful_df$V1 == 'FALSE','rename'], 'add', 'rm')
+    other_opts = grep('TRUE|FALSE', useful_df$V1, invert = TRUE)
+    useful_df[other_opts, 'rename'] = paste0(useful_df[other_opts, 'rename'], '.', useful_df[other_opts, 'V1'])
+    #str(useful_df)
+    dir_name = paste(useful_df$rename, collapse = '_')
+    return (dir_name)
+}
