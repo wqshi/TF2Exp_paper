@@ -189,7 +189,7 @@ for (i in 1:length(genes_names)){
     ###Add permutation within features.#####
     if (permutation_flag == TRUE){
         sum(rowSums(is.na(transcript_data)) < 0.5 * nrow(transcript_data))
-        transcript_data[7,]        
+        #transcript_data[7,]        
         set.seed(11)
         features = setdiff(rownames(transcript_data), c('gene.RNASEQ'))
         permutation_index = sample(features, size = length(features))
@@ -202,7 +202,7 @@ for (i in 1:length(genes_names)){
     if (add_TF_exp == TRUE){
         transcript_data[1,]
         transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
-        transcript_data_tf_concentration[7,]
+        #transcript_data_tf_concentration[7,]
         rowSums( transcript_data_tf_concentration == 0)
     }
     
