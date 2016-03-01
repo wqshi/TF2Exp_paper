@@ -30,7 +30,7 @@ if __doc__ is None:
 else:
     chr_num = 'chr22'
     mode_str = 'all'
-    batch_name = '462samples_sailfish'
+    batch_name = 'test'
 batch_output_dir = f_get_batch_output_dir(batch_name)
 
 tf_dir = '%s/data/raw_data/tf/encode_peaks/' % project_dir
@@ -72,6 +72,10 @@ variation_file_list = my.f_shell_cmd( "find %s -name '*.diff'"%(deepsea_dir), qu
 variation_data = pd.read_csv(variation_file_list[0], sep =',')
 loc_tf_list = list(set( [ feature.split('|')[1].lower() for feature in my.grep_list('GM12878',variation_data.columns.values)]))
 my.f_print_list(loc_tf_list)
+
+if batch_name == 'test':
+    loc_tf_list = loc_tf_list[1:5]
+
 logging.info('Number of features %s' % len(loc_tf_list) )
 
 tf_variation_dir = '%s/output/tf_variation/%s/%s' % (batch_output_dir, mode_str, chr_num)
@@ -86,8 +90,8 @@ tf_name_pd.columns = ['tf', 'rename']
 tf_name_pd.to_csv('%s/data/raw_data/tf_name_match.txt'%project_dir, index = False, sep='\t' )
 print tf_name_pd.head()
 
-def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, tf_regions_table):
-
+def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir):
+    #import ipdb; ipdb.set_trace()
     try:
         tf_peak_file = peak_file_df_rmdup.ix[peak_file_df_rmdup.tf == loc_tf.replace('-','').replace('.',''), 'file_path'].tolist()[0]
     except:
@@ -110,8 +114,8 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
     
         sample_id = os.path.basename(variation_file).split('.')[0]
         variation_data = pd.read_csv(variation_file, sep =',')
-        variation_data['start'] = variation_data['pos']
-        variation_data['end'] =  variation_data['pos'] + 1
+        variation_data['start'] = variation_data['pos'].astype(int)
+        variation_data['end'] =  variation_data['pos'].astype(int) + 1
 
         #print variation_data.ix[:,0:10].head()
 
@@ -152,7 +156,15 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         os.remove(tf_regions_table.loc_file)
 
 
-Parallel(n_jobs=num_cores)(delayed(parse_one_tf)(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, tf_regions_table) for loc_tf in loc_tf_list)  
+for loc_tf in loc_tf_list:
+    print loc_tf
+    parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir)
+    break 
+
+Parallel(n_jobs=4)(delayed(parse_one_tf)(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir) for loc_tf in loc_tf_list)  
+
+import shutil
+shutil.rmtree(deepsea_dir)
 
 
 
@@ -166,4 +178,7 @@ tf_summary_list.columns = ['feature', 'path']
 tf_summary_list.to_csv('%s/data_path.csv'%tf_variation_dir, index = False, sep = ' ')
 
 print tf_summary_list.shape
+
+
+
 
