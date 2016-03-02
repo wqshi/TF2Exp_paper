@@ -12,7 +12,7 @@ library(futile.logger)
 library(GenomicRanges)
 library("optparse")
 library(plyr)
-
+library(dplyr)
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
     make_option(c("--add_histone"), type="character", default='TRUE', help="output file name [default= %default]", metavar="character"),
@@ -22,10 +22,11 @@ option_list = list(
     make_option(c("--gene"), type="character", default='', help="The name of gene", metavar="character"),
     make_option(c("--model"), type="character", default='enet', help="The machine learning method used, eg. enet, and rfe", metavar="character"),
     make_option(c("--add_permutation"), type="character", default='FALSE', help="Permutate the train features", metavar="character"),
-    make_option(c("--chr_str"), type="character", default='chr22', help="Chromosome name", metavar="character")
+    make_option(c("--chr_str"), type="character", default='chr22', help="Chromosome name", metavar="character"),
+    make_option(c("--add_TF_exp_only"), type="character", default='FALSE', help="Add TF expression as the input features", metavar="character")
 );
 
-
+flog.info('Before the opt parse')
 opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
@@ -46,6 +47,7 @@ if (is.null(opt$batch_name)){
     #gene='ENSG00000196576.10' : largest memory
     permutation_flag = FALSE
     chr_str = 'chr22'
+    add_TF_exp_only=TRUE
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
@@ -58,6 +60,7 @@ if (is.null(opt$batch_name)){
     output_mode = opt$output_mode
     cat('Test flag :', test_flag, 'Model ', train_model, '\n')
     chr_str = opt$chr_str
+    add_TF_exp_only=opt$add_TF_exp_only == 'TRUE'
     tuneGrid = NULL
 }
 
@@ -85,8 +88,7 @@ cat('Number regulatory regions and empty fragment ids', '\n')
 
 
 #Get the expressed transcripts
-sample_cols = grep('(NA|HG)[0-9]+', colnames(expression_data),value = T)
-
+sample_cols = sort(grep('(NA|HG)[0-9]+', colnames(expression_data),value = T))
 cat('The number of samples:', length(sample_cols), '\n')
 expression_data = expression_data[,c('chr', 'start', 'end', 'gene','feature','feature_start', 'feature_end', 'hic_fragment_id' ,'type', sample_cols )]
 #write.table(sample_cols, './data/output/sample.list', sep = '\t', quote = F, col.names = F)
@@ -147,7 +149,11 @@ rownames(tf_gene_expression) = tf_gene_id$tf
 
 valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
 
-flog.info('After load the data') 
+flog.info('After load the data')
+
+opt_name = f_convet_opts_to_output_dir(opt)
+results_dir = f_p('%s/rnaseq/%s/%s/', output_dir, chr_str, opt_name )
+dir.create(results_dir)
 
 for (i in 1:length(genes_names)){
     
@@ -180,7 +186,7 @@ for (i in 1:length(genes_names)){
     
     #transcript_data = transcript_data[!duplicated(transcript_data[, non_sample_cols[1:8]]),]
     dim(transcript_data)
-    
+    head10(tmp)
     transcript_data_tf_concentration = transcript_data
     dim(transcript_data)
     dim(scaled_tmp)
@@ -324,6 +330,25 @@ for (i in 1:length(genes_names)){
         final_train_data = cbind(final_train_data, t(correlated_miRNA_expression[rownames(final_train_data)]))
     }
 
+    ##Make a TF concentration only model.
+    if (add_TF_exp_only == TRUE){
+   
+        head10(final_train_data)
+        head10(tmp)
+        tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
+        head10(tf_expression)
+        class(tf_expression)
+        tf_expression$gene.RNASEQ = final_train_data[rownames(tf_expression), 'gene.RNASEQ']
+        final_train_data_bak= final_train_data
+        final_train_data = tf_expression
+        colnames(tf_expression)
+    }else if(add_TF_exp == TRUE){
+        tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
+        final_train_data_bak= final_train_data
+        final_train_data = cbind(final_train_data, tf_expression)
+    }else{
+        final_train_data = final_train_data
+    }
     
     #final_train_data$population = NULL
     final_train_data[,'population'] = as.character(sample_info[rownames(final_train_data), c('pop')])
@@ -346,12 +371,25 @@ for (i in 1:length(genes_names)){
                         fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = train_model, tuneGrid),
                         silent=TRUE
                        )
+
     
+    #Write the mean prediction for each TF genes.
+    if (chr_str == 'chrTF'){
+        pred_file = f_p('%s/%s.enet.pred',  results_dir, gene)
+        mean_prediction <- as.data.frame(fit$pred %>% group_by(as.factor(rowIndex)) %>% dplyr::summarise(pred = mean(pred), obs = mean(obs)))
+        rownames(mean_prediction) = rownames(final_train_data)
+        colnames(mean_prediction)
+        str(mean_prediction)
+        pred = t(mean_prediction['pred'])
+        write.table(cbind(transcript_id, pred), file = pred_file, sep = '\t', quote=FALSE, row.names = FALSE)
+    }
+
     if (class(result) == "try-error"){
         print(result)
         cat('Error in ', transcript_id, '\n')
         next
     }
+    
     flog.info('After training')
 
     key_features = str_replace_all(names(fit$key_features),'`','')
@@ -365,9 +403,7 @@ for (i in 1:length(genes_names)){
     shared_features = intersect(key_features, rownames(transcript_data))
     features_df[shared_features, ] = transcript_data[shared_features,feature_cols]
 
-    
-
-    
+        
     features_df$name = paste0(transcript_id, '|' ,rownames(features_df))
     features_df$score = fit$key_features
 
@@ -386,9 +422,9 @@ for (i in 1:length(genes_names)){
     prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features)))
     #print(prediction_performance)
 }
-opt_name = f_convet_opts_to_output_dir(opt)
-results_dir = f_p('%s/rnaseq/%s/%s/', output_dir, chr_str, opt_name )
-dir.create(results_dir)
+
+
+
 output_file = f_p('%s/%s.enet',  results_dir, gene)
 
 flog.info('Output file: %s', output_file)
