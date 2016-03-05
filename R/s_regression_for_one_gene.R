@@ -1,5 +1,3 @@
-
-
 setwd('~/expression_var/R/')
 
 source('~/R/s_function.R', chdir = TRUE)
@@ -23,7 +21,8 @@ option_list = list(
     make_option(c("--model"), type="character", default='enet', help="The machine learning method used, eg. enet, and rfe", metavar="character"),
     make_option(c("--add_permutation"), type="character", default='FALSE', help="Permutate the train features", metavar="character"),
     make_option(c("--chr_str"), type="character", default='chr22', help="Chromosome name", metavar="character"),
-    make_option(c("--add_TF_exp_only"), type="character", default='FALSE', help="Add TF expression as the input features", metavar="character")
+    make_option(c("--add_TF_exp_only"), type="character", default='FALSE', help="Add TF expression as the input features", metavar="character"),
+    make_option(c("--add_predict_TF"), type="character", default='FALSE', help="Add TF predicted expression as the input features", metavar="character")
 );
 
 flog.info('Before the opt parse')
@@ -35,19 +34,22 @@ str(opt)
 
 if (is.null(opt$batch_name)){
     #batch_name = '54samples_evalue'
-    batch_name = '462samples_sailfish_quantile'
+    #batch_name = '462samples_sailfish_quantile'
+    batch_name = '462samples_quantile_rmNA'
     add_histone = TRUE
     add_miRNA = TRUE
     add_TF_exp = TRUE
     test_flag = TRUE
     tuneGrid = NULL
-    train_model = 'glmnet'
+    train_model = 'gbm'
+    #train_model = 'glmnet'
     #gene = 'ENSG00000235478.1'
     gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
     #gene='ENSG00000196576.10' : largest memory
     permutation_flag = FALSE
     chr_str = 'chr22'
     add_TF_exp_only=TRUE
+    add_predict_TF=FALSE
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
@@ -61,11 +63,11 @@ if (is.null(opt$batch_name)){
     cat('Test flag :', test_flag, 'Model ', train_model, '\n')
     chr_str = opt$chr_str
     add_TF_exp_only=opt$add_TF_exp_only == 'TRUE'
+    add_predict_TF= opt$add_predict_TF == 'TRUE'
     tuneGrid = NULL
 }
 
 flog.info('Begin')
-
 
 model_str = 'all'
 cat('Tune Grid is NULL:', is.null(tuneGrid), '\n')
@@ -76,7 +78,7 @@ output_dir = f_p('./data/%s/', batch_name)
 expression_file = f_p('%s/rnaseq/%s/%s.txt', output_dir, chr_str, gene)
 
 expression_data = read.table(expression_file, header = TRUE, na.strings = 'NA')
-#head(expression_data[,1:10])
+head(expression_data[,1:10])
 #tail(expression_data[,1:20])
 
 
@@ -92,7 +94,7 @@ sample_cols = sort(grep('(NA|HG)[0-9]+', colnames(expression_data),value = T))
 cat('The number of samples:', length(sample_cols), '\n')
 expression_data = expression_data[,c('chr', 'start', 'end', 'gene','feature','feature_start', 'feature_end', 'hic_fragment_id' ,'type', sample_cols )]
 #write.table(sample_cols, './data/output/sample.list', sep = '\t', quote = F, col.names = F)
-
+head10(expression_data)
 gene_with_regulatory_elements = as.data.frame.matrix(table(expression_data$gene, expression_data$feature))
 head(gene_with_regulatory_elements)
 regulated_genes_names = rownames(gene_with_regulatory_elements)[ rowSums(gene_with_regulatory_elements) > 10]
@@ -122,7 +124,6 @@ length(sample_cols)
 
 #Read the TF expression data.
 tf_gene_id = read.table('./data/raw_data/rnaseq/tf_ensemble_id.txt', header = T, stringsAsFactors = FALSE)
-tf_gene_id
 rownames(tf_gene_id) = tf_gene_id$tf
 expression_data$feature_tf =''
 #str(expression_data)
@@ -136,15 +137,13 @@ head(expression_data$feature_tf)
 table(expression_data$feature_tf)
 
 #head(tf_gene_id)
-gene_expression = read.table(f_p('%s/rnaseq/transcript_data.bed', output_dir), header = T, stringsAsFactors = FALSE, na.strings = 'NA')
-rownames(gene_expression) = gene_expression$transcript_id
-#str(tf_gene_id)
 
 
-tf_gene_expression = gene_expression[tf_gene_id$ensembl_gene_id,]
+tf_gene_expression = read.table(f_p('%s/rnaseq/tf_transcript_data.bed', output_dir), header = T, stringsAsFactors = FALSE, na.strings = 'NA')
+#tf_gene_expression = gene_expression[tf_gene_id$ensembl_gene_id,]
 dim(tf_gene_expression)
 #head(tf_gene_expression[,1:20])
-
+dim(tf_gene_id)
 rownames(tf_gene_expression) = tf_gene_id$tf
 
 valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
@@ -158,6 +157,12 @@ dir.create(results_dir)
 for (i in 1:length(genes_names)){
     
     transcript_id = genes_names[i]
+
+    if (str_replace(transcript_id, pattern = '[.][0-9]+', replacement = '') %in% tf_gene_id$ensembl_gene_id){
+        cat('Skip TF gene', transcript_id, '\n')
+    }
+
+    
     cat('\n','============',i, transcript_id, '==============','\n')
     sum(gene_with_regulatory_elements[transcript_id,])
     gene_with_regulatory_elements[transcript_id,]
@@ -320,7 +325,7 @@ for (i in 1:length(genes_names)){
     
     related_miRNAs = subset(miRNA_target_table, ensembl_gene_id == str_split(transcript_id, '[.]')[[1]][1] )$miRNA
 
-    if(length(related_miRNAs) > 0){
+    if(add_miRNA == TRUE){
         cat('Transcript', transcript_id, '\n')
         miRNA_expression$TargetID = as.character(miRNA_expression$TargetID)
         correlated_miRNA_expression = subset(miRNA_expression, TargetID %in% related_miRNAs )[, c('TargetID', sample_cols)]
@@ -331,24 +336,43 @@ for (i in 1:length(genes_names)){
     }
 
     ##Make a TF concentration only model.
+    tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
+    tf_expression = tf_expression[,!duplicated(t(tf_expression))]
+    
     if (add_TF_exp_only == TRUE){
-   
-        head10(final_train_data)
-        head10(tmp)
-        tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
-        head10(tf_expression)
-        class(tf_expression)
+        cat('======== TF expression only========\n')
         tf_expression$gene.RNASEQ = final_train_data[rownames(tf_expression), 'gene.RNASEQ']
         final_train_data_bak= final_train_data
         final_train_data = tf_expression
         colnames(tf_expression)
     }else if(add_TF_exp == TRUE){
-        tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
+        #tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
+        cat('======== add TF expression========\n')
         final_train_data_bak= final_train_data
         final_train_data = cbind(final_train_data, tf_expression)
     }else{
         final_train_data = final_train_data
     }
+
+    
+    if (add_predict_TF == TRUE){
+
+        cat('======== add predict TF ========\n')
+        
+        tf_prediction = f_p('./data/%s/rnaseq/chrTF/tf_prediction', batch_name)
+
+        tf_gene_id_unique=tf_gene_id[!duplicated(tf_gene_id$ensembl_gene_id),]
+        rownames(tf_gene_id_unique) = tf_gene_id_unique$ensembl_gene_id
+
+        
+        tf_prediction_data = read.table(tf_prediction, header = TRUE, na.strings = 'NA')
+        
+        rownames(tf_prediction_data) = paste0( 'tf_predict', tf_gene_id_unique[tf_prediction_data$gene,'tf'])
+        
+        final_train_data = cbind(final_train_data, data.frame(t(tf_prediction_data[, rownames(final_train_data) ])))
+        
+    }
+    
     
     #final_train_data$population = NULL
     final_train_data[,'population'] = as.character(sample_info[rownames(final_train_data), c('pop')])
@@ -367,28 +391,35 @@ for (i in 1:length(genes_names)){
     flog.info('After add other feature data')
     #train_model = 'glmnet'
     #train_model = 'enet'
+    colnames(final_train_data)
     result <- try(
                         fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = train_model, tuneGrid),
                         silent=TRUE
                        )
-
-    
-    #Write the mean prediction for each TF genes.
-    if (chr_str == 'chrTF'){
-        pred_file = f_p('%s/%s.enet.pred',  results_dir, gene)
-        mean_prediction <- as.data.frame(fit$pred %>% group_by(as.factor(rowIndex)) %>% dplyr::summarise(pred = mean(pred), obs = mean(obs)))
-        rownames(mean_prediction) = rownames(final_train_data)
-        colnames(mean_prediction)
-        str(mean_prediction)
-        pred = t(mean_prediction['pred'])
-        write.table(cbind(transcript_id, pred), file = pred_file, sep = '\t', quote=FALSE, row.names = FALSE)
-    }
 
     if (class(result) == "try-error"){
         print(result)
         cat('Error in ', transcript_id, '\n')
         next
     }
+
+    mean_prediction <- as.data.frame(fit$pred %>% group_by(as.factor(rowIndex)) %>% dplyr::summarise(pred = mean(pred), obs = mean(obs)))
+    rownames(mean_prediction) = rownames(final_train_data)
+    mean_prediction$population = final_train_data$population
+    colnames(mean_prediction)
+    head(mean_prediction)
+    f_assert(all(final_train_data$gene.RNASEQ == mean_prediction$obs), 'Error in retrieve gene expression')
+    
+    
+    #Write the mean prediction for each TF genes.
+    if (chr_str == 'chrTF'){
+        cat('load TF predictions \n')
+        pred_file = f_p('%s/%s.enet.pred',  results_dir, gene)
+        pred = t(mean_prediction['pred'])
+        write.table(cbind(transcript_id, pred), file = pred_file, sep = '\t', quote=FALSE, row.names = FALSE)
+    }
+
+    f_plot_model_data(mean_prediction, plot_title = f_p('%s \n R-squared: %.2f', transcript_id, fit$max_performance), save_path = f_p('%s/%s.enet.tif', results_dir, transcript_id) )
     
     flog.info('After training')
 
@@ -403,7 +434,6 @@ for (i in 1:length(genes_names)){
     shared_features = intersect(key_features, rownames(transcript_data))
     features_df[shared_features, ] = transcript_data[shared_features,feature_cols]
 
-        
     features_df$name = paste0(transcript_id, '|' ,rownames(features_df))
     features_df$score = fit$key_features
 
