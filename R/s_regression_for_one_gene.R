@@ -22,7 +22,10 @@ option_list = list(
     make_option(c("--add_permutation"), type="character", default='FALSE', help="Permutate the train features", metavar="character"),
     make_option(c("--chr_str"), type="character", default='chr22', help="Chromosome name", metavar="character"),
     make_option(c("--add_TF_exp_only"), type="character", default='FALSE', help="Add TF expression as the input features", metavar="character"),
-    make_option(c("--add_predict_TF"), type="character", default='FALSE', help="Add TF predicted expression as the input features", metavar="character")
+    make_option(c("--add_predict_TF"), type="character", default='FALSE', help="Add TF predicted expression as the input features", metavar="character"),
+    make_option(c("--add_YRI"), type="character", default='FALSE', help="Whether to remove YRI population ", metavar="character"),
+    make_option(c("--population"), type="character", default='all', help="Whether to remove YRI population ", metavar="character"),
+    make_option(c("--TF_exp_type"), type="character", default='TF', help="Read TF expression, faked TF, or random miRNA", metavar="character")
 );
 
 flog.info('Before the opt parse')
@@ -37,12 +40,12 @@ if (is.null(opt$batch_name)){
     #batch_name = '462samples_sailfish_quantile'
     batch_name = '462samples_quantile_rmNA'
     add_histone = TRUE
-    add_miRNA = TRUE
-    add_TF_exp = TRUE
+    add_miRNA = FALSE
+    add_TF_exp = FALSE
     test_flag = TRUE
     tuneGrid = NULL
-    train_model = 'gbm'
-    #train_model = 'glmnet'
+    #train_model = 'rf'
+    train_model = 'glmnet'
     #gene = 'ENSG00000235478.1'
     gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
     #gene='ENSG00000196576.10' : largest memory
@@ -50,6 +53,9 @@ if (is.null(opt$batch_name)){
     chr_str = 'chr22'
     add_TF_exp_only=TRUE
     add_predict_TF=FALSE
+    add_YRI=TRUE
+    select_pop='YRI'
+    TF_exp_type = 'fakeTF'
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
@@ -64,7 +70,10 @@ if (is.null(opt$batch_name)){
     chr_str = opt$chr_str
     add_TF_exp_only=opt$add_TF_exp_only == 'TRUE'
     add_predict_TF= opt$add_predict_TF == 'TRUE'
-    tuneGrid = NULL
+    add_YRI = opt$add_YRI == 'TRUE'
+    select_pop=opt$population
+    TF_exp_type=opt$TF_exp_type
+    tuneGrid = tuneGridList[[train_model]]
 }
 
 flog.info('Begin')
@@ -138,8 +147,9 @@ table(expression_data$feature_tf)
 
 #head(tf_gene_id)
 
+tf_gene_expression = f_get_TF_expression(output_dir, type = TF_exp_type)
 
-tf_gene_expression = read.table(f_p('%s/rnaseq/tf_transcript_data.bed', output_dir), header = T, stringsAsFactors = FALSE, na.strings = 'NA')
+#tf_gene_expression = read.table(f_p('%s/rnaseq/tf_transcript_data.bed', output_dir), header = T, stringsAsFactors = FALSE, na.strings = 'NA')
 #tf_gene_expression = gene_expression[tf_gene_id$ensembl_gene_id,]
 dim(tf_gene_expression)
 #head(tf_gene_expression[,1:20])
@@ -237,7 +247,7 @@ for (i in 1:length(genes_names)){
 
     matches = matches[matches$queryHits != matches$subjectHits, ]
 
-    str(matches)
+    #str(matches)
      
     if(nrow(matches) > 0){
         #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)    
@@ -248,7 +258,7 @@ for (i in 1:length(genes_names)){
         overlap_df$name = paste0(tf_regions[overlap_df$queryHits,'feature_tf'], '-', tf_regions[overlap_df$subjectHits,'feature_tf'] )
         overlap_pairs = overlap_df[overlap_df$name %in% valid_interaction$V1,]
         flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
-        str(overlap_df)
+        #str(overlap_df)
         if(nrow(overlap_pairs)>0){
             tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
             dim(tf_interaction_impact)
@@ -280,7 +290,7 @@ for (i in 1:length(genes_names)){
     promoter_index=as.numeric(which(tf_regions$type == 'promoter'))
     enhancer_index=as.numeric(which(tf_regions$type == 'enhancer'))
     pair_df=data.frame(promoter = rep(promoter_index, each = length(enhancer_index)), enhancer = rep(enhancer_index, times = length(promoter_index)))
-    str(pair_df)
+    #str(pair_df)
     if(nrow(pair_df) > 0){
         pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
         promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
@@ -380,6 +390,17 @@ for (i in 1:length(genes_names)){
     final_train_data$population = as.factor(final_train_data$population)
     final_train_data$gender = as.factor(final_train_data$gender)
  
+    #Remove the population
+    if (add_YRI == FALSE){
+        flog.info('Remove the YRI')
+        final_train_data = subset(final_train_data, population != 'YRI')
+    }
+
+    
+    if(select_pop != 'all'){
+        final_train_data = subset(final_train_data, population == select_pop)
+        flog.info('Subset to %s size: %s', select_pop, dim(final_train_data))
+    }
     
     
     additional_cols  =grep('gender|hsa-miR|population', colnames(final_train_data), value = TRUE)
@@ -403,6 +424,7 @@ for (i in 1:length(genes_names)){
         next
     }
 
+    
     mean_prediction <- as.data.frame(fit$pred %>% group_by(as.factor(rowIndex)) %>% dplyr::summarise(pred = mean(pred), obs = mean(obs)))
     rownames(mean_prediction) = rownames(final_train_data)
     mean_prediction$population = final_train_data$population
@@ -410,7 +432,7 @@ for (i in 1:length(genes_names)){
     head(mean_prediction)
     f_assert(all(final_train_data$gene.RNASEQ == mean_prediction$obs), 'Error in retrieve gene expression')
     
-    
+    grep('promoter', colnames(final_train_data), value = TRUE)
     #Write the mean prediction for each TF genes.
     if (chr_str == 'chrTF'){
         cat('load TF predictions \n')
@@ -419,7 +441,9 @@ for (i in 1:length(genes_names)){
         write.table(cbind(transcript_id, pred), file = pred_file, sep = '\t', quote=FALSE, row.names = FALSE)
     }
 
-    f_plot_model_data(mean_prediction, plot_title = f_p('%s \n R-squared: %.2f', transcript_id, fit$max_performance), save_path = f_p('%s/%s.enet.tif', results_dir, transcript_id) )
+    tmp_plot<-f_plot_model_data(mean_prediction, plot_title = f_p('%s \n R-squared: %.2f', transcript_id, fit$max_performance), save_path = f_p('%s/%s.enet.tif', results_dir, transcript_id) )
+
+    plot(tmp_plot)
     
     flog.info('After training')
 
