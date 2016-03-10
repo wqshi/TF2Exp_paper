@@ -64,11 +64,6 @@ def f_half_score_het_sites(variation_file, deepsea_dir):
 
 
 
-###Part 2. Correct the bias of GM12878
-
-
-
-
 
 import unittest
 class TestDatabaseTable(unittest.TestCase):
@@ -77,8 +72,6 @@ class TestDatabaseTable(unittest.TestCase):
         
     def test_half_score(self):
         variation_file_list = my.f_shell_cmd( "find %s -name '*.diff.gz'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
-
-        
         f_half_score_het_sites(variation_file_list[0], deepsea_dir)
         
         half_file_list = my.f_shell_cmd( "find %s/het/ -name '*.diff'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
@@ -97,21 +90,10 @@ class TestDatabaseTable(unittest.TestCase):
         print type(variation_data.ix[:, col_name])
         
         het_data = het_data.ix[het_data.ix[:, col_name]!=0,:]
-        print variation_data.columns
-        print variation_data.shape
-        
-        
         
         equal_rows = abs( variation_data.ix[:, col_name] - het_data.ix[:, col_name] ) < 0.0000000000000001
         homo_rows = variation_data.name == '1|1'
         assert sum(equal_rows) == sum(homo_rows), 'Homo sites are not eaqual by %s out of %s' %(sum(equal_rows) - sum(homo_rows), len(homo_rows)  )
-
-
-
-
-
-
-
 
     
 if __name__ == "__main__":
