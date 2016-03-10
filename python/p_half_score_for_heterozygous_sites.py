@@ -2,7 +2,6 @@
 
 #According to the genotype data, half the score if the variation is heterozygous.
 
-
 from p_project_metadata import *
 
 import re
@@ -27,7 +26,9 @@ if __doc__ is None:
 else:
     chr_num = 'chr22'
     mode_str = 'all'
-    batch_name = '462samples_sailfish'
+    batch_name = 'test'
+    #batch_name = '462samples_sailfish'
+    #batch_name = '462samples_quantile_rmNA'
 batch_output_dir = f_get_batch_output_dir(batch_name)
 
 tf_dir = '%s/data/raw_data/tf/encode_peaks/' % project_dir
@@ -40,12 +41,14 @@ variation_file_list = my.f_shell_cmd( "find %s -name '*.diff.gz'"%(deepsea_dir),
 
 for variation_file in variation_file_list:
     sample_id = os.path.basename(variation_file).split('.')[0]
-    variation_data = pd.read_csv(variation_file, sep =',', compression= 'gzip')
-    
+    variation_data = pd.read_csv(variation_file, sep =',', compression= 'gzip').dropna()
+    print sample_id
+    #print variation_data.ix[1105:1110,1:6].head()
     genotype_data=variation_data[['name']]
-    
 
-    print genotype_data[:5]
+    print genotype_data.shape
+    #print pd.isnull(variation_data).any(1).nonzero()[0]
+    #print genotype_data[:5]
     assert len(genotype_data) == variation_data.shape[0], 'Size of genotype data not match'
 
     
@@ -54,7 +57,19 @@ for variation_file in variation_file_list:
     
     het_selection = [ re.match(pattern, genotype) is not None  for genotype in genotype_data.ix[:,'name'].tolist() ]
 
-    print het_selection[0:5]
+    print het_selection
+    print variation_data.shape
+    print len(het_selection)
+    
+    i = 0;
+    #genotype_data[1107]
+    #for genotype in genotype_data.ix[:,'name'].tolist():
+    #    i = i + 1;
+    #    re.match(pattern, genotype)
+    #    print i
+
+    
+    #print het_selection[0:5]
     numeric_cols =my.grep_list('GM12878', variation_data.columns)
     
     het_variation = variation_data.copy()
@@ -62,5 +77,6 @@ for variation_file in variation_file_list:
 
     het_variation.to_csv( "%s/het/%s.diff"%(deepsea_dir, sample_id), index = False, sep = ',')
     
-    print het_variation.ix[:,0:7].head()
-    print variation_data.ix[:,0:7].head()
+    #print het_variation.ix[:,0:7].head()
+    #print variation_data.ix[:,0:7].head()
+
