@@ -1,16 +1,14 @@
 setwd('~/expression_var/R/')
-
-source('~/R/s_function.R', chdir = TRUE)
 source('s_gene_regression_fun.R')
-library(doMC)
+source('s_project_funcs.R')
 library(stringr)
-#install.packages('doMC')
-#install.packages('futile.logger')
+
 library(futile.logger)
-library(GenomicRanges)
 library("optparse")
 library(plyr)
 library(dplyr)
+
+
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
     make_option(c("--add_histone"), type="character", default='TRUE', help="output file name [default= %default]", metavar="character"),
@@ -25,7 +23,8 @@ option_list = list(
     make_option(c("--add_predict_TF"), type="character", default='FALSE', help="Add TF predicted expression as the input features", metavar="character"),
     make_option(c("--add_YRI"), type="character", default='FALSE', help="Whether to remove YRI population ", metavar="character"),
     make_option(c("--population"), type="character", default='all', help="Whether to remove YRI population ", metavar="character"),
-    make_option(c("--TF_exp_type"), type="character", default='TF', help="Read TF expression, faked TF, or random miRNA", metavar="character")
+    make_option(c("--TF_exp_type"), type="character", default='TF', help="Read TF expression, faked TF, or random miRNA", metavar="character"),
+    make_option(c("--add_gm12878"), type="character", default='TRUE', help="Whether to remove the GM12878 from the TF impact matrix", metavar="character")
 );
 
 flog.info('Before the opt parse')
@@ -36,9 +35,9 @@ str(opt)
 
 
 if (is.null(opt$batch_name)){
-    #batch_name = '54samples_evalue'
+    batch_name = '54samples_evalue'
     #batch_name = '462samples_sailfish_quantile'
-    batch_name = '462samples_quantile_rmNA'
+    #batch_name = '462samples_quantile_rmNA'
     add_histone = TRUE
     add_miRNA = FALSE
     add_TF_exp = FALSE
@@ -54,8 +53,9 @@ if (is.null(opt$batch_name)){
     add_TF_exp_only=TRUE
     add_predict_TF=FALSE
     add_YRI=TRUE
-    select_pop='YRI'
+    select_pop='all'
     TF_exp_type = 'fakeTF'
+    add_gm12878=FALSE
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
@@ -73,6 +73,7 @@ if (is.null(opt$batch_name)){
     add_YRI = opt$add_YRI == 'TRUE'
     select_pop=opt$population
     TF_exp_type=opt$TF_exp_type
+    add_gm12878=opt$add_gm12878 == 'TRUE'
     tuneGrid = tuneGridList[[train_model]]
 }
 
@@ -116,44 +117,26 @@ cat('The number of investigated transcripts:', length(genes_names), '\n')
 prediction_performance = data.frame(gene = 'mean', performance = '0', SD = '0', num_feature = '0' ,stringsAsFactors = F)
 collected_features = data.frame()
 sample_info = read.table(f_p('%s/chr_vcf_files/integrated_call_samples_v3.20130502.ALL.panel', output_dir ), header = TRUE, row.names = 1)
-
-
-
+if ( length(grep('random', batch_name)) != 0  ){
+    rownames(sample_info) = sample(rownames(sample_info), size = nrow(sample_info))
+}
 
 #Read the miRNA interaction and expression data.
 miRNA_target_table = read.table('./data/raw_data/miRNA/miRNA_ensemble.txt', header = TRUE)
 miRNA_expression = read.table('./data/raw_data/miRNA/GD452.MirnaQuantCount.1.2N.50FN.samplename.resk10.txt', header = TRUE)
 
-i = 1
+
 non_sample_cols = setdiff(colnames(expression_data), sample_cols)
 sample_cols = intersect(sample_cols, colnames(miRNA_expression))
-length(sample_cols)
 
-#print(non_sample_cols)
 
 #Read the TF expression data.
 tf_gene_id = read.table('./data/raw_data/rnaseq/tf_ensemble_id.txt', header = T, stringsAsFactors = FALSE)
 rownames(tf_gene_id) = tf_gene_id$tf
 expression_data$feature_tf =''
-#str(expression_data)
-head10(expression_data)
-
-
 expression_data$feature_tf = (tf_gene_id[expression_data$feature,'external_name'])
 
-table(expression_data$feature_tf)
-head(expression_data$feature_tf)
-table(expression_data$feature_tf)
-
-#head(tf_gene_id)
-
 tf_gene_expression = f_get_TF_expression(output_dir, type = TF_exp_type)
-
-#tf_gene_expression = read.table(f_p('%s/rnaseq/tf_transcript_data.bed', output_dir), header = T, stringsAsFactors = FALSE, na.strings = 'NA')
-#tf_gene_expression = gene_expression[tf_gene_id$ensembl_gene_id,]
-dim(tf_gene_expression)
-#head(tf_gene_expression[,1:20])
-dim(tf_gene_id)
 rownames(tf_gene_expression) = tf_gene_id$tf
 
 valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
@@ -162,7 +145,7 @@ flog.info('After load the data')
 
 opt_name = f_convet_opts_to_output_dir(opt)
 results_dir = f_p('%s/rnaseq/%s/%s/', output_dir, chr_str, opt_name )
-dir.create(results_dir)
+dir.create(results_dir, showWarnings = FALSE)
 
 for (i in 1:length(genes_names)){
     
@@ -188,13 +171,20 @@ for (i in 1:length(genes_names)){
     sum(is.na(transcript_data))
     head10(transcript_data)
 
+
+    if(add_gm12878 == FALSE){
+        transcript_data = f_correct_gm12878_bias(transcript_data, 'NA12872')
+        flog.info('Remove NA12872 bias.')
+        head10(transcript_data)
+    }
+    
     
     #######Add the TF concentration data#########
     tmp=tf_gene_expression[as.character(transcript_data$feature),sample_cols]
     tmp[is.na(tmp)]=1 #Set the non-TF rows to 1
     scaled_tmp=t(apply(tmp, MARGIN = 1, FUN = function(X) (X - min(X))/diff(range(X))) + 1)
     scaled_tmp[is.na(scaled_tmp)] = 1 #For the DNASE regions.
-
+    dim(scaled_tmp)
     head(tf_gene_expression)
     head(scaled_tmp[,1:15])
     dim(tmp)
@@ -221,134 +211,39 @@ for (i in 1:length(genes_names)){
     }
 
     if (add_TF_exp == TRUE){
-        transcript_data[1,]
         transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
-        #transcript_data_tf_concentration[7,]
-        rowSums( transcript_data_tf_concentration == 0)
     }
     
-    
-    #head(transcript_data[,1:10])
-    ################
     
     ##Add TF-TF interactions
-    tf_regions = transcript_data_tf_concentration
-    tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ', tf_regions$feature, invert= TRUE),]
-    tf_regions=tf_regions[!duplicated(tf_regions),]
+    train_obj  = f_add_tf_interactions(transcript_data)
 
-    table(tf_regions$feature_tf)
-    head(tf_regions)
-    dim(tf_regions)
-    
-    colnames(tf_regions)
-    genome_ragnes = makeGRangesFromDataFrame(tf_regions[,c('chr', 'feature_start','feature_end')])
-
-    matches = as.data.frame( findOverlaps(genome_ragnes, genome_ragnes, minoverlap = 200) )
-
-    matches = matches[matches$queryHits != matches$subjectHits, ]
-
-    #str(matches)
-     
-    if(nrow(matches) > 0){
-        #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)    
-        
-        overlap_df=data.frame(matches)
-        str(overlap_df)
-        head(overlap_df)
-        overlap_df$name = paste0(tf_regions[overlap_df$queryHits,'feature_tf'], '-', tf_regions[overlap_df$subjectHits,'feature_tf'] )
-        overlap_pairs = overlap_df[overlap_df$name %in% valid_interaction$V1,]
-        flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
-        #str(overlap_df)
-        if(nrow(overlap_pairs)>0){
-            tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
-            dim(tf_interaction_impact)
-            head(tf_interaction_impact)
-        
-            tf_interaction_impact$.id = NULL
-            row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
-            tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
-            cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
-    
-            transcript_data_merge = rbind(transcript_data_tf_concentration, tf_valid_interaction_impact)
-            rm(tf_valid_interaction_impact)
-            rm(tf_interaction_impact)
-        }else{
-            cat('Empty overlaps','\n')
-        }
-        
-    }else{
-        transcript_data_merge = transcript_data_tf_concentration
-    }
-
-    rm(transcript_data_tf_concentration)
 
     
-    ############
-    #Promoter - enhancer TF interactions
-    ############
-
-    promoter_index=as.numeric(which(tf_regions$type == 'promoter'))
-    enhancer_index=as.numeric(which(tf_regions$type == 'enhancer'))
-    pair_df=data.frame(promoter = rep(promoter_index, each = length(enhancer_index)), enhancer = rep(enhancer_index, times = length(promoter_index)))
-    #str(pair_df)
-    if(nrow(pair_df) > 0){
-        pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
-        promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
-        str(promoter_pairs)
-
-        if(nrow(promoter_pairs) > 0){
-            
-            promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
-            dim(promoter_interaction_impact)
-            promoter_interaction_impact$.id=NULL
-            rownames(promoter_interaction_impact) = make.names(paste0('P_E.', promoter_interaction_impact$feature), unique = TRUE)
-            
-            dim(transcript_data_merge)
-            transcript_data_merge = rbind(transcript_data_merge, promoter_interaction_impact)
-            cat('Interaction terms', dim(promoter_interaction_impact), '\n')
-            rm(promoter_interaction_impact)
-        }else{
-            cat('Empty promoter-enhancers!', '\n')
-        }
-    }
-
-    train_data = transcript_data_merge[,sample_cols]
+    train_data = train_obj[,sample_cols]
     train_data[is.na(train_data)] = 0
-
-    rm(transcript_data_merge)
-    
     train_data_rmdup = train_data[!duplicated(train_data),]
-    rm(train_data)
+
+    
     
     train_data2 = as.data.frame(t(train_data_rmdup))
     
-    head10(train_data2)
     if (add_histone == FALSE){
         none_histone_cols = grep('H3K',colnames(train_data2), value = TRUE, invert = TRUE)
         final_train_data = train_data2[, none_histone_cols]
     }else{
         final_train_data  = train_data2
-    }
-
-    rm(train_data2)
-    rm(train_data_rmdup)
-    
-    related_miRNAs = subset(miRNA_target_table, ensembl_gene_id == str_split(transcript_id, '[.]')[[1]][1] )$miRNA
+    }    
+    dim(final_train_data)
 
     if(add_miRNA == TRUE){
-        cat('Transcript', transcript_id, '\n')
-        miRNA_expression$TargetID = as.character(miRNA_expression$TargetID)
-        correlated_miRNA_expression = subset(miRNA_expression, TargetID %in% related_miRNAs )[, c('TargetID', sample_cols)]
-        row.names(correlated_miRNA_expression) = correlated_miRNA_expression$TargetID
-        cat('Add miRNA to the training:', as.character(correlated_miRNA_expression$TargetID), '\n')
-        correlated_miRNA_expression$TargetID = NULL
-        final_train_data = cbind(final_train_data, t(correlated_miRNA_expression[rownames(final_train_data)]))
+        final_train_data = f_add_related_miRNAs(transcript_id, final_train_data)
     }
 
     ##Make a TF concentration only model.
     tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
     tf_expression = tf_expression[,!duplicated(t(tf_expression))]
-    
+    str(tf_expression)
     if (add_TF_exp_only == TRUE){
         cat('======== TF expression only========\n')
         tf_expression$gene.RNASEQ = final_train_data[rownames(tf_expression), 'gene.RNASEQ']
@@ -359,49 +254,21 @@ for (i in 1:length(genes_names)){
         #tf_expression = data.frame(t(tmp[, rownames(final_train_data) ]))
         cat('======== add TF expression========\n')
         final_train_data_bak= final_train_data
+        #final_train_data= final_train_data_bak
         final_train_data = cbind(final_train_data, tf_expression)
     }else{
         final_train_data = final_train_data
     }
 
-    
-    if (add_predict_TF == TRUE){
-
-        cat('======== add predict TF ========\n')
-        
-        tf_prediction = f_p('./data/%s/rnaseq/chrTF/tf_prediction', batch_name)
-
-        tf_gene_id_unique=tf_gene_id[!duplicated(tf_gene_id$ensembl_gene_id),]
-        rownames(tf_gene_id_unique) = tf_gene_id_unique$ensembl_gene_id
-
-        
-        tf_prediction_data = read.table(tf_prediction, header = TRUE, na.strings = 'NA')
-        
-        rownames(tf_prediction_data) = paste0( 'tf_predict', tf_gene_id_unique[tf_prediction_data$gene,'tf'])
-        
-        final_train_data = cbind(final_train_data, data.frame(t(tf_prediction_data[, rownames(final_train_data) ])))
-        
-    }
-    
-    
-    #final_train_data$population = NULL
-    final_train_data[,'population'] = as.character(sample_info[rownames(final_train_data), c('pop')])
-    final_train_data[,'gender'] = sample_info[rownames(final_train_data), c('gender')] == 'male'
-    final_train_data$population = as.factor(final_train_data$population)
-    final_train_data$gender = as.factor(final_train_data$gender)
- 
-    #Remove the population
-    if (add_YRI == FALSE){
-        flog.info('Remove the YRI')
-        final_train_data = subset(final_train_data, population != 'YRI')
-    }
-
-    
-    if(select_pop != 'all'){
-        final_train_data = subset(final_train_data, population == select_pop)
-        flog.info('Subset to %s size: %s', select_pop, dim(final_train_data))
-    }
-    
+    #Add predicted TF expression
+    final_train_data = f_add_predicted_TF_expression(add_predict_TF, batch_name, final_train_data)
+    head10(final_train_data)
+    dim(final_train_data)
+    rownames(final_train_data)
+    #Add population information
+    obj<-f_get_test_data(empty_data = TRUE)
+    obj$data = final_train_data
+    final_train_data <- f_add_population_and_gender(obj, add_YRI, select_pop)
     
     additional_cols  =grep('gender|hsa-miR|population', colnames(final_train_data), value = TRUE)
     additional_data =transcript_data[rep('gene.RNASEQ', length(additional_cols)),]
@@ -453,7 +320,7 @@ for (i in 1:length(genes_names)){
 
     feature_cols = c('chr', 'feature_start', 'feature_end')
     features_df = transcript_data[key_features, feature_cols ]
-
+    
     rownames(features_df) = key_features
     shared_features = intersect(key_features, rownames(transcript_data))
     features_df[shared_features, ] = transcript_data[shared_features,feature_cols]
@@ -484,10 +351,9 @@ output_file = f_p('%s/%s.enet',  results_dir, gene)
 flog.info('Output file: %s', output_file)
 
 prediction_performance= prediction_performance[-1,]
-#prediction_performance$performance = as.numeric(prediction_performance$performance)
-#prediction_performance['mean',] =c('mean', mean(prediction_performance[complete.cases(prediction_performance),]$performance))
-
 write.table(prediction_performance, file = output_file , sep = '\t', quote=FALSE, row.names = FALSE)
-
-head(collected_features)
 write.table(collected_features, file = f_p('%s.features', output_file), sep = '\t', quote = FALSE, row.names =FALSE)
+
+
+
+################
