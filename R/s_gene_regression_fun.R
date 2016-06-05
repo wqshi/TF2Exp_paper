@@ -5,9 +5,14 @@ source('~/R/s_function.R', chdir = TRUE)
 library(GenomicRanges)
 
 tuneGridList = list(
-     gbmGrid = expand.grid(.interaction.depth = seq(1, 7, by = 2),
+     gbm = expand.grid(.interaction.depth = seq(1, 7, by = 2),
                             .n.trees = seq(100, 1000, by = 50),
-                            .shrinkage = c(0.01, 0.1))
+                            .shrinkage = c(0.01, 0.1)),
+    enet = expand.grid(.lambda = c(0, 0.01, .1),
+                            .fraction = seq(.05, 1, length = 20)),
+
+    glmnet = expand.grid(.alpha = c(0, .1, .2, .4, .6, .8, 1),
+                          .lambda = c(0.0001, 0.001, 0.005 ,seq(.01, .2, length = 20)))
 )
 
 f_get_server_name <- function(){
@@ -20,12 +25,12 @@ f_get_server_name <- function(){
 #learner_name = 'rf'
 f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid,quite=FALSE)
 {
-  
+    
   #cl <- makeCluster(3)
   #registerDoSNOW(cl)
 #    registerDoMC(cores = 2)
     library(caret, quietly = TRUE)
-    set.seed(3456)
+    #set.seed(3456)
     cat('learner name:', learner_name, '\n')
     dim(my_train)
     head(my_train[,1:10])
@@ -34,21 +39,28 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
         non_zero_data = my_train
     else
         non_zero_data = my_train[, -zero_cols]
+
+    if (!target_col %in% colnames(non_zero_data)){
+        non_zero_data[target_col] = my_train[target_col]
+    }
     
     rm(my_train)
     
-    numeric_cols = colnames(non_zero_data)[sapply(non_zero_data, is.numeric)]
-    correlations <- cor(non_zero_data[, numeric_cols])
-    head(correlations[,1:10])
-    other_cols = setdiff(colnames(non_zero_data), numeric_cols)
-    highCorr <- findCorrelation(correlations, cutoff = .9)
+    rm_high_cor = FALSE
+    if (rm_high_cor == TRUE){
+        numeric_cols = colnames(non_zero_data)[sapply(non_zero_data, is.numeric)]
+        correlations <- cor(non_zero_data[, numeric_cols])
+        head(correlations[,1:10])
+        other_cols = setdiff(colnames(non_zero_data), numeric_cols)
+        highCorr <- findCorrelation(correlations, cutoff = .9)
 
     
     
-    if(length(highCorr) > 0){
-        cat('Correlated columns:', length(highCorr), 'out of', ncol(non_zero_data), '\n')
-        remain_cols = setdiff(colnames(non_zero_data), colnames(correlations)[highCorr])
-        #non_zero_data = non_zero_data[,  unique(c(remain_cols, target_col))]
+        if(length(highCorr) > 0){
+            cat('Correlated columns:', length(highCorr), 'out of', ncol(non_zero_data), '\n')
+            remain_cols = setdiff(colnames(non_zero_data), colnames(correlations)[highCorr])
+            #non_zero_data = non_zero_data[,  unique(c(remain_cols, target_col))]
+        }
     }
     
     #non_zero_data = my_train
@@ -147,6 +159,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
       Fit$key_features=(rfRFE$fit$importance[,'IncNodePurity'])
       Fit$max_performance = max(rfRFE$results$Rsquared)
   }else if(learner_name =='glmnet'){
+      
     Fit <- caret::train( as.formula(f_p('%s ~ .', target_col)), data = non_zero_data,
                         metric = "RMSE", 
                          method = 'glmnet',
@@ -249,7 +262,7 @@ f_caret_classification_return_fit <- function(my_train, target_col, learner_name
    
   #library(caret)
   fitControl <- trainControl(method = "repeatedcv",
-                             number = 5,
+                             number = 10,
                              repeats = 1,
                              allowParallel= TRUE)
   
@@ -314,9 +327,10 @@ f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
 
 f_convet_opts_to_output_dir <- function(opt){
     
-    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|permutation)',names(opt), value = TRUE, invert = TRUE)
+    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|permutation|add_TF_exp|add_predict_tf)',names(opt), value = TRUE, invert = TRUE)
     useful_df=ldply(opt[useful_opts])
     useful_df$rename=str_replace_all(useful_df$.id, pattern = '_', replacement = '.')
+    useful_df$V1=str_replace_all(useful_df$V1, pattern = '_', replacement = '.')
     useful_df[useful_df$V1 == 'FALSE','rename'] = str_replace_all(useful_df[useful_df$V1 == 'FALSE','rename'], 'add', 'rm')
     other_opts = grep('TRUE|FALSE', useful_df$V1, invert = TRUE)
     useful_df[other_opts, 'rename'] = paste0(useful_df[other_opts, 'rename'], '.', useful_df[other_opts, 'V1'])
@@ -487,7 +501,7 @@ f_add_predicted_TF_expression <- function(add_predict_TF, batch_name, input_data
 
 
 
-f_get_test_data <- function(){
+f_get_test_data <- function(empty_data = TRUE){
     fun_dir = './data/test_data/s_gene_regression_fun'
     
     #gene = 'ENSG00000241973.6'
@@ -495,8 +509,13 @@ f_get_test_data <- function(){
 
     #Before add the TF concentration
     #write.table(transcript_data, f_p('%s/transcript_data', fun_dir))
-    test_data = read.table(f_p('%s/transcript_data', fun_dir))
-    head(test_data)
+    if (empty_data == FALSE){
+        test_data = read.table(f_p('%s/transcript_data', fun_dir))
+        head(test_data)
+    }else{
+        test_data = NULL
+    }
+
     sample_info = read.table(f_p('./data/462samples/chr_vcf_files/integrated_call_samples_v3.20130502.ALL.panel'), header = TRUE, row.names = 1)
     snyder_samples = read.table(f_p('./data/54samples_evalue/output/sample.list'),
                            header = FALSE)
@@ -520,8 +539,8 @@ f_correct_gm12878_bias <- function(input_data, sample_id, exclude_rows = 'gene.R
     if (sample_id %in% colnames(input_data)){
         correct_data[selected_rows, sample_cols] = input_data[selected_rows, sample_cols] - input_data[selected_rows, sample_id]
     }else{
-        flog.warn('%s is not in the colonames of input data', sample_id)
-        return (NULL)
+        flog.error('%s is not in the colonames of input data', sample_id)
+        return (input_data)
     }
     
     return (correct_data)
@@ -540,8 +559,11 @@ t_correct_gm12878_bias <-function(){
 
 
 
-f_add_population_and_gender <- function(sample_info, input_data, add_YRI, select_pop, snyder_samples){
+f_add_population_and_gender <- function(obj, add_YRI, select_pop){
     #input_data$population = NULL
+    
+    input_data = obj$data
+    snyder_samples = obj$snyder_samples
     input_data[,'population'] = as.character(sample_info[rownames(input_data), c('pop')])
     input_data[,'gender'] = sample_info[rownames(input_data), c('gender')] == 'male'
     input_data$population = as.factor(input_data$population)
@@ -553,22 +575,37 @@ f_add_population_and_gender <- function(sample_info, input_data, add_YRI, select
         output_data = subset(input_data, population != 'YRI')
     }
 
+    shared_cols = intersect(snyder_samples, rownames(input_data))
     
-    if(select_pop != 'all'){
+    if(select_pop == 'YRI'){
         output_data = subset(input_data, population == select_pop)
         flog.info('Subset to %s size: %s', select_pop, dim(input_data))
-    }else if(select_pop == 'snyder'){
-        dim(input_data)
-        output_data = input_data[, snyder_samples]
+    }else if(select_pop == '54snyder'){
+        output_data = input_data[shared_cols, ]
+    }
+    else if(select_pop == '29snyder'){
         
-    }else if(select_pop == '54YRI'){
+        output_data = input_data[sample(shared_cols, size = 29), ]
         
+    }else if(select_pop == '29YRI'){
+        YRI_samples = rownames( subset(obj$sample_info, pop == 'YRI') )
+        length(YRI_samples)
+
+        other_YRI_samples = setdiff( intersect(rownames(input_data), YRI_samples), shared_cols)
+        output_data = input_data[other_YRI_samples,]
         
-    }else{
+    }else if(select_pop == 'all'){
+        output_data = input_data
+    }else if(select_pop == 'None'){
+        output_data = input_data
+        output_data$population = NULL
+        output_data$gender = NULL
+    }
+    else{
         flog.warn('Unknown population %s', select_pop)
     }
 
-    return (input_data)
+    return (output_data)
 }
 
 
@@ -576,13 +613,21 @@ f_add_population_and_gender <- function(sample_info, input_data, add_YRI, select
 
  t_add_population_and_gender <-function(){
     obj = f_get_test_data()
-    input_data = obj$data
-    f_add_population_and_gender(obj, add_YRI = TRUE,
-                                select_pop = 'snyder')
+    obj$data = as.data.frame(t(obj$data))
+    snyder_data = f_add_population_and_gender(obj, add_YRI = TRUE, select_pop = '54snyder')
+    f_assert(nrow(snyder_data)== 53, 'Test sub-population')
+    dim(snyder_data)
     
-    corrected_data = f_correct_gm12878_bias(input_data, sample_id)
 
-    f_assert(all(corrected_data[-1, sample_id] == 0), 'correction is wrong')
+    YRI29_data = f_add_population_and_gender(obj, add_YRI = TRUE, select_pop = '29YRI')
+    f_assert(nrow(YRI29_data)== 29, 'Test sub-population')
+
+
+    snyder29_data = f_add_population_and_gender(obj, add_YRI = TRUE, select_pop = '29snyder')
+    f_assert(nrow(snyder29_data)== 29, 'Test sub-population')
+    
+    f_assert( length(intersect(rownames(YRI29_data), rownames(snyder_data) )) == 0, 'YRI selection' )
+    
 }
 
 
