@@ -3,7 +3,7 @@ library(mclust, quietly = TRUE)
 library(caret, quietly = TRUE)
 source('~/R/s_function.R', chdir = TRUE)
 library(GenomicRanges)
-
+library(futile.logger)
 tuneGridList = list(
      gbm = expand.grid(.interaction.depth = seq(1, 7, by = 2),
                             .n.trees = seq(100, 1000, by = 50),
@@ -23,7 +23,7 @@ f_get_server_name <- function(){
 #my_train = final_train_data
 #target_col = 'gene.RNASEQ'
 #learner_name = 'rf'
-f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid,quite=FALSE)
+f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid, output_figure_path = NULL, quite=FALSE)
 {
     
   #cl <- makeCluster(3)
@@ -83,7 +83,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
    
  
   fitControl <- trainControl(method = "repeatedcv",
-                             number = 5,
+                             number = 10,
                              repeats = 1,
                              savePredictions = 'final',
                              allowParallel= TRUE)
@@ -175,6 +175,10 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     key_features = sig_coef[,'coef']
     names(key_features) = rownames(sig_coef)
     Fit$key_features = key_features
+
+    if(Fit$max_performance > 0.05 & FALSE){
+        f_learning_curve(non_zero_data, target_col, output_figure_path)
+    }
 
 
   }else if(learner_name == 'gbm'){
@@ -312,7 +316,7 @@ f_get_ecdf_value <- function(loc_array){
 }
 
 f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
-
+    #Convert the score of TFs to [0-1]
     #print(match_line)
     line1 = unlist(tf_regions[match_line[1],sample_cols])
     line2 = unlist(tf_regions[match_line[2],sample_cols])
@@ -327,7 +331,8 @@ f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
 
 f_convet_opts_to_output_dir <- function(opt){
     
-    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|permutation|add_TF_exp|add_predict_tf)',names(opt), value = TRUE, invert = TRUE)
+    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|permutation|TF_exp|add_predict_TF|YRI)',names(opt),
+                       value = TRUE, invert = TRUE, ignore.case = T)
     useful_df=ldply(opt[useful_opts])
     useful_df$rename=str_replace_all(useful_df$.id, pattern = '_', replacement = '.')
     useful_df$V1=str_replace_all(useful_df$V1, pattern = '_', replacement = '.')
@@ -392,8 +397,7 @@ f_add_tf_interactions <- function(data){
     matches = matches[matches$queryHits != matches$subjectHits, ]
     
     if(nrow(matches) > 0){
-                                        #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)    
-        
+        #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)
         overlap_df=data.frame(matches)
         str(overlap_df)
         head(overlap_df)
@@ -426,30 +430,39 @@ f_add_tf_interactions <- function(data){
    #Promoter - enhancer TF interactions
    ############
 
-    promoter_index=as.numeric(which(tf_regions$type == 'promoter'))
-    enhancer_index=as.numeric(which(tf_regions$type == 'enhancer'))
-    pair_df=data.frame(promoter = rep(promoter_index, each = length(enhancer_index)), enhancer = rep(enhancer_index, times = length(promoter_index)))
+    promoter_fragments = unique(as.character(subset(tf_regions, type == 'promoter')$hic_fragment_id))
+    for ( promoter_fragment in promoter_fragments ){
+        
+        promoter_index=as.numeric(which(tf_regions$type == 'promoter'
+                                        & tf_regions$hic_fragment_id == promoter_fragment))
+        enhancer_index=as.numeric(which(tf_regions$type == 'enhancer' &
+                                        tf_regions$pair == promoter_fragment))
+        pair_df=data.frame(promoter = rep(promoter_index, each = length(enhancer_index)), enhancer = rep(enhancer_index, times = length(promoter_index)))
                                         #str(pair_df)
-    if(nrow(pair_df) > 0){
-        pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
-        promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
-        str(promoter_pairs)
+        if(nrow(pair_df) > 0){
+            pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
+            promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
+            str(promoter_pairs)
 
-        if(nrow(promoter_pairs) > 0){
-            
-            promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
-            dim(promoter_interaction_impact)
-            promoter_interaction_impact$.id=NULL
-            rownames(promoter_interaction_impact) = make.names(paste0('P_E.', promoter_interaction_impact$feature), unique = TRUE)
-            
-            dim(transcript_data_merge)
-            transcript_data_merge = rbind(transcript_data_merge, promoter_interaction_impact)
-            cat('Interaction terms', dim(promoter_interaction_impact), '\n')
-            rm(promoter_interaction_impact)
-        }else{
-            cat('Empty promoter-enhancers!', '\n')
+            if(nrow(promoter_pairs) > 0){
+                
+                promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+                dim(promoter_interaction_impact)
+                promoter_interaction_impact$.id=NULL
+                rownames(promoter_interaction_impact) = make.names(paste0('P_E.', promoter_interaction_impact$feature), unique = TRUE)
+                
+                dim(transcript_data_merge)
+                transcript_data_merge = rbind(transcript_data_merge, promoter_interaction_impact)
+                cat('Interaction terms', dim(promoter_interaction_impact), '\n')
+                rm(promoter_interaction_impact)
+            }else{
+                cat('Empty promoter-enhancers!', '\n')
+            }
         }
+
+
     }
+
 
     return (transcript_data_merge)
     #data <<- transcript_data_merge
@@ -598,8 +611,8 @@ f_add_population_and_gender <- function(obj, add_YRI, select_pop){
         output_data = input_data
     }else if(select_pop == 'None'){
         output_data = input_data
-        output_data$population = NULL
-        output_data$gender = NULL
+        output_data$population = 'pop'
+        output_data$gender = 'gender'
     }
     else{
         flog.warn('Unknown population %s', select_pop)
@@ -631,7 +644,103 @@ f_add_population_and_gender <- function(obj, add_YRI, select_pop){
 }
 
 
+f_adjust_r_square <- function(r_square, p, n){
+    return (1 - (n-1)*(1-r_square)/(n-p-1))
+}
 
+
+f_get_all.entrezgene <- function(project_dir){
+    all.entrezgene = read.table(f_p('%s/data/raw_data/rnaseq/all.ensemble.genes.gene_start', project_dir),sep='\t', header = TRUE, quote = '')
+    all.entrezgene = all.entrezgene[,1:5]
+    colnames(all.entrezgene) = c('ensembl_gene_id', 'chromosome_name', 'gene_start', 'gene_end', 'strand')
+    row.names(all.entrezgene) = all.entrezgene$ensembl_gene_id
+    flog.info('%s gene loaded', nrow(all.entrezgene))
+    return (all.entrezgene)
+}
+
+f_get_genotype_matrix <- function(chr_str){
+    gtX <- read.table(f_p('./data/raw_data/wgs/1kg/additive_dir/%s.traw', chr_str), header = T, stringsAsFactors = F)
+    library(stringr)
+    colnames(gtX) = str_replace(colnames(gtX), '_.*', '')
+    rownames(gtX) <- make.names(gtX$SNP, unique = TRUE)
+    return (gtX)
+}
+
+
+f_get_genotype_matrix_for_gene <- function(gene_name, flank_length = 1e6){
+
+    #Two hidden parameters: all.entrezgene and gtX because they are too big.
+    gene_id = str_replace(gene_name, '[.].*', '')
+
+    geneinfo <- all.entrezgene[gene_id,]
+    start <- geneinfo$gene_start - 1e6 ### 1Mb lower bound for cis-eQTLS
+    end <- geneinfo$gene_end + 1e6 ### 1Mb upper bound for cis-eQTLs
+
+    selected_snps = gtX$POS >= start & gtX$POS <= end
+    gene_snps = gtX[selected_snps,]
+
+    #head10(gene_snps)
+
+    #sample_cols = grep('(NA|HG)[0-9]*', colnames(gene_snps), value = TRUE)
+    gene_snps$chr = paste0('chr', gene_snps$CHR)
+    gene_snps$start = gene_snps$POS -1
+    gene_snps$end = gene_snps$POS
+    gene_snps$gene = gene_name
+    gene_snps$feature = gene_snps$SNP
+    gene_snps$feature_tf = gene_snps$feature
+    gene_snps$feature_start = gene_snps$POS
+    gene_snps$feature_end = gene_snps$POS
+    gene_snps$hic_fragment_id = NA
+    gene_snps$pair = NA
+    gene_snps$cor = 1
+    gene_snps$type = 'SNP'
+    return (gene_snps)
+}
+
+f_merge_two_dfs <- function(df1, df2){
+    share_cols = intersect(colnames(df1), colnames(df2))
+    return (rbind(df1[,share_cols], df2[, share_cols]  ))
+}
+
+
+f_filter_training_features <- function(final_train_data, batch_name){
+    if(batch_name == 'SNP'){
+        flog.info('batch mode:%s', batch_name)
+        output_data = final_train_data[, grep('(SNP|gene.RNASEQ)', colnames(final_train_data))]
+    }else if(batch_name == 'TF'){
+        flog.info('batch mode:%s', batch_name)
+        output_data = final_train_data[, grep('^SNP', colnames(final_train_data), invert = T)]
+    }else{
+        flog.info('Error mode %s', batch_name)
+        output_data = final_train_data
+    }
+    output_data$population = final_train_data$population
+    return (output_data)
+}
+
+t_filter_training_features <- function(){
+      #write.table( final_train_data, file='./data/test/t_filter_training_features.txt')  
+    test_data=read.table(file='./data/test/t_filter_training_features.txt')
+
+    SNP_data=f_filter_training_features(test_data, 'SNP')
+    
+    checkTrue(length(colnames(SNP_data) ) == length(grep('SNP', colnames(SNP_data))) +1)
+
+    TF_data = f_filter_training_features(test_data, 'TF')
+    checkTrue(length(grep('SNP', colnames(TF_data))) == 0)
+}
+
+
+t_get_genotype_matrix_for_gene <- function(){
+    chr_str = 'chr22'
+    all.entrezgene = f_get_all.entrezgene('./')
+    gtX = f_get_genetype_matrix(chr_str)
+    gene_name = 'ENSG00000183597.11'
+    gene_snps=f_get_genotype_matrix_for_gene(gene_name)
+
+}
+
+source('s_caret_learning_curve.R')
 library(RUnit)
 options(run.main = F)
 if (getOption('run.main', default=TRUE)) {
