@@ -318,15 +318,84 @@ f_get_ecdf_value <- function(loc_array){
 f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
     #Convert the score of TFs to [0-1]
     #print(match_line)
+    cat(match_line,'\n')
     line1 = unlist(tf_regions[match_line[1],sample_cols])
     line2 = unlist(tf_regions[match_line[2],sample_cols])
-
+    if (all(  tf_regions[match_line[1], c('feature_start', 'feature_end')] ==
+              tf_regions[match_line[2], c('feature_start', 'feature_end')] )){
+        return (NULL)
+    }
+    
     new_line= tf_regions[match_line[1],]
     new_line[, sample_cols] = f_get_ecdf_value(line1) * f_get_ecdf_value(line2)
     new_line[,'feature'] = paste0(tf_regions[match_line[1],'feature_tf'], '-' ,tf_regions[match_line[2],'feature_tf'])
     new_line[,'type'] = 'TF-TF'
+    new_line[, 'feature_tf'] = paste( sort(rownames(tf_regions)[match_line]), collapse = '-')
+
+    if ('cor' %in% colnames(tf_regions)){
+        new_line[, 'cor'] = min(  tf_regions[match_line[1], 'cor'],  tf_regions[match_line[2], 'cor'] )
+    }
     return (new_line)
 }
+
+f_multiple_pair_tf_interaction <- function(match_df_input, sample_cols, tf_regions, debug = TRUE){
+    
+
+    #Filter the self interactions. This could happen because one TF can overlap with two hic fragments
+    match_df1= match_df_input[rownames(tf_regions)[match_df_input[,1]] != rownames(tf_regions)[match_df_input[,2]],]
+    not_same_filter = rowSums(tf_regions[match_df_input[,1], c('feature_start', 'feature_end')] == tf_regions[match_df_input[,2], c('feature_start', 'feature_end')]) < 2
+    match_df1 = match_df_input[not_same_filter,]
+    
+    match_df2 = f_switch_if_bigger(match_df1, 1, 2, debug = FALSE)
+    dim(match_df2)
+
+    
+    match_df = match_df2[!duplicated(match_df2),]
+    match_lines1 = tf_regions[match_df[,1],]
+    match_lines2 =  tf_regions[match_df[,2],]
+
+    
+    
+    
+    new_line= tf_regions[match_df[,1],]
+    for (i in 1:nrow(new_line)){
+        #cat('i', i, '\n')
+        new_line[i, sample_cols] = f_get_ecdf_value(as.numeric(match_lines1[i, sample_cols])) * f_get_ecdf_value(as.numeric(match_lines2[i, sample_cols]))
+    }
+    
+    
+    new_line[,'feature'] = paste0(tf_regions[match_df[,1],'feature_tf'], '-' ,tf_regions[match_df[,2],'feature_tf'])
+    new_line[,'type'] = 'TF-TF'
+        if (debug == TRUE){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@4@"]]))##:ess-bp-end:##
+        
+        a =0
+    }
+    
+    new_line[, 'feature_tf'] = paste0( rownames(tf_regions)[match_df[,1] ], '-', rownames(tf_regions)[match_df[,2]])
+
+    if ('cor' %in% colnames(tf_regions)){
+        new_line[, 'cor'] = min(  tf_regions[match_df[,1], 'cor'],  tf_regions[match_df[,2], 'cor'] )
+    }
+    return (new_line)
+
+}
+
+f_switch_if_bigger<- function(input_data, col1, col2, debug = TRUE){
+    if (debug == TRUE){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+        a =0
+    }
+    big_rows = input_data[,col1] > input_data [,col2]
+    tmp = input_data[big_rows,col1]
+    input_data[big_rows, col1] = input_data[big_rows, col2]
+    input_data[big_rows, col2] = tmp
+    return (input_data)
+}
+
+
 
 
 f_convet_opts_to_output_dir <- function(opt){
@@ -384,7 +453,7 @@ f_get_TF_expression<- function(output_dir, type = 'TF'){
 
 
 
-f_add_tf_interactions <- function(data){
+f_add_tf_interactions <- function(data, debug =FALSE){
                                         #Add the TF interactions
     tf_regions = data
     tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ', tf_regions$feature, invert= TRUE),]
@@ -406,7 +475,9 @@ f_add_tf_interactions <- function(data){
         flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
                                         #str(overlap_df)
         if(nrow(overlap_pairs)>0){
-            tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            #tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            tf_interaction_impact = f_multiple_pair_tf_interaction(overlap_pairs, sample_cols, tf_regions, debug = FALSE)
+
             dim(tf_interaction_impact)
             head(tf_interaction_impact)
             
@@ -414,8 +485,13 @@ f_add_tf_interactions <- function(data){
             row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
             tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
             cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
-            
-            transcript_data_merge = rbind(data, tf_valid_interaction_impact)
+            if (debug == TRUE){
+                ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@14@"]]))##:ess-bp-end:##
+                a =0
+            }
+            duplicated_rows = duplicated(tf_valid_interaction_impact$feature_tf)
+            transcript_data_merge = rbind(data, tf_valid_interaction_impact[!duplicated_rows,])
             
         }else{
             cat('Empty overlaps','\n')
@@ -446,7 +522,9 @@ f_add_tf_interactions <- function(data){
 
             if(nrow(promoter_pairs) > 0){
                 
-                promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+                #promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+                promoter_interaction_impact = f_multiple_pair_tf_interaction(promoter_pairs, sample_cols, tf_regions, debug = FALSE)
+
                 dim(promoter_interaction_impact)
                 promoter_interaction_impact$.id=NULL
                 rownames(promoter_interaction_impact) = make.names(paste0('P_E.', promoter_interaction_impact$feature), unique = TRUE)
