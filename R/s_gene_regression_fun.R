@@ -35,11 +35,13 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     dim(my_train)
     head(my_train[,1:10])
     zero_cols = nearZeroVar(my_train, freqCut = 90/10)
+    #zero_cols = NULL
     if (length(zero_cols) == 0)
         non_zero_data = my_train
     else
         non_zero_data = my_train[, -zero_cols]
 
+    flog.info('Filter %s near zero cols', length(zero_cols))
     if (!target_col %in% colnames(non_zero_data)){
         non_zero_data[target_col] = my_train[target_col]
     }
@@ -318,7 +320,7 @@ f_get_ecdf_value <- function(loc_array){
 f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
     #Convert the score of TFs to [0-1]
     #print(match_line)
-    cat(match_line,'\n')
+    #cat(match_line,'\n')
     line1 = unlist(tf_regions[match_line[1],sample_cols])
     line2 = unlist(tf_regions[match_line[2],sample_cols])
     if (all(  tf_regions[match_line[1], c('feature_start', 'feature_end')] ==
@@ -354,7 +356,8 @@ f_multiple_pair_tf_interaction <- function(match_df_input, sample_cols, tf_regio
     match_df1= match_df_input[rownames(tf_regions)[match_df_input[,1]] != rownames(tf_regions)[match_df_input[,2]],]
     not_same_filter = rowSums(tf_regions[match_df_input[,1], c('feature_start', 'feature_end')] == tf_regions[match_df_input[,2], c('feature_start', 'feature_end')]) < 2
     match_df1 = match_df_input[not_same_filter,]
-    
+
+    match_df1 = match_df_input #Allow self overlapping.
     match_df2 = f_switch_if_bigger(match_df1, 1, 2, debug = FALSE)
     dim(match_df2)
 
@@ -362,24 +365,23 @@ f_multiple_pair_tf_interaction <- function(match_df_input, sample_cols, tf_regio
     match_df = match_df2[!duplicated(match_df2[,1:2]),]
 
     flog.info('Final match pairs %s', nrow(match_df))
-    match_lines1 = tf_regions[match_df[,1],]
-    match_lines2 =  tf_regions[match_df[,2],]
-    
-    new_line= tf_regions[match_df[,1],]
-    
-    for (i in 1:nrow(new_line)){
-        cat('i', i, '\n')
-        new_line[i, sample_cols] = f_get_ecdf_value(as.numeric(match_lines1[i, sample_cols])) * f_get_ecdf_value(as.numeric(match_lines2[i, sample_cols]))
-    }
-    
-    new_line[,'feature'] = paste0(tf_regions[match_df[,1],'feature_tf'], '-' ,tf_regions[match_df[,2],'feature_tf'])
-    new_line[,'type'] = 'TF-TF'
+    match_lines1 = tf_regions[match_df[,1], sample_cols]
+    match_lines2 =  tf_regions[match_df[,2], sample_cols]
     if (debug == TRUE){
         ##:ess-bp-start::browser@nil:##
-browser(expr=is.null(.ESSBP.[["@4@"]]))##:ess-bp-end:##
+        browser(expr=is.null(.ESSBP.[["@4@"]]))##:ess-bp-end:##
         
         a =0
     }
+    #match_line1_ecdf = apply(match_lines1, MARGIN = 1, f_get_ecdf_value) 
+    #match_line2_ecdf = apply(match_lines2, MARGIN = 1, f_get_ecdf_value)
+
+    new_line = tf_regions[match_df[,1], ]
+    new_line[, sample_cols]= match_lines1 * match_lines2
+    
+    new_line[,'feature'] = paste0(tf_regions[match_df[,1],'feature_tf'], '-' ,tf_regions[match_df[,2],'feature_tf'])
+    new_line[,'type'] = 'TF-TF'
+
     
     new_line[, 'feature_tf'] = paste0( rownames(tf_regions)[match_df[,1] ], '-', rownames(tf_regions)[match_df[,2]])
 
@@ -466,7 +468,8 @@ f_add_tf_interactions <- function(data, debug =FALSE){
     tf_regions = data
     tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ|rs[0-9]+', tf_regions$feature, invert= TRUE),]
     tf_regions=tf_regions[!duplicated(tf_regions),]
-
+    tf_regions[, sample_cols] = apply(tf_regions[, sample_cols], MARGIN = 1, f_get_ecdf_value)
+    
     genome_ragnes = makeGRangesFromDataFrame(tf_regions[,c('chr', 'feature_start','feature_end')])
 
     matches = as.data.frame( findOverlaps(genome_ragnes, genome_ragnes, minoverlap = 200) )
@@ -477,6 +480,9 @@ f_add_tf_interactions <- function(data, debug =FALSE){
         browser(expr=is.null(.ESSBP.[["@14@"]]))##:ess-bp-end:##
         a =0
     }
+
+    
+    
     if(nrow(matches) > 0){
         #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)
         overlap_df=data.frame(matches)
@@ -487,7 +493,7 @@ f_add_tf_interactions <- function(data, debug =FALSE){
         flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
                                         #str(overlap_df)
         if(nrow(overlap_pairs)>0){
-            tf_interaction_impact2 = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            #tf_interaction_impact2 = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
             tf_interaction_impact = f_multiple_pair_tf_interaction(overlap_pairs, sample_cols, tf_regions, debug = FALSE)
 
             dim(tf_interaction_impact)
