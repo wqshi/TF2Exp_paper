@@ -338,6 +338,15 @@ f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
     return (new_line)
 }
 
+f_one_pair_tf_interaction2 <- function(line1, line2){
+    #Convert the score of TFs to [0-1]
+    #print(match_line)    
+    f_get_ecdf_value(line1) * f_get_ecdf_value(line2)
+    
+}
+
+
+
 f_multiple_pair_tf_interaction <- function(match_df_input, sample_cols, tf_regions, debug = TRUE){
     
 
@@ -350,23 +359,22 @@ f_multiple_pair_tf_interaction <- function(match_df_input, sample_cols, tf_regio
     dim(match_df2)
 
     
-    match_df = match_df2[!duplicated(match_df2),]
+    match_df = match_df2[!duplicated(match_df2[,1:2]),]
+
+    flog.info('Final match pairs %s', nrow(match_df))
     match_lines1 = tf_regions[match_df[,1],]
     match_lines2 =  tf_regions[match_df[,2],]
-
-    
-    
     
     new_line= tf_regions[match_df[,1],]
+    
     for (i in 1:nrow(new_line)){
-        #cat('i', i, '\n')
+        cat('i', i, '\n')
         new_line[i, sample_cols] = f_get_ecdf_value(as.numeric(match_lines1[i, sample_cols])) * f_get_ecdf_value(as.numeric(match_lines2[i, sample_cols]))
     }
     
-    
     new_line[,'feature'] = paste0(tf_regions[match_df[,1],'feature_tf'], '-' ,tf_regions[match_df[,2],'feature_tf'])
     new_line[,'type'] = 'TF-TF'
-        if (debug == TRUE){
+    if (debug == TRUE){
         ##:ess-bp-start::browser@nil:##
 browser(expr=is.null(.ESSBP.[["@4@"]]))##:ess-bp-end:##
         
@@ -456,7 +464,7 @@ f_get_TF_expression<- function(output_dir, type = 'TF'){
 f_add_tf_interactions <- function(data, debug =FALSE){
                                         #Add the TF interactions
     tf_regions = data
-    tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ', tf_regions$feature, invert= TRUE),]
+    tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ|rs[0-9]+', tf_regions$feature, invert= TRUE),]
     tf_regions=tf_regions[!duplicated(tf_regions),]
 
     genome_ragnes = makeGRangesFromDataFrame(tf_regions[,c('chr', 'feature_start','feature_end')])
@@ -464,7 +472,11 @@ f_add_tf_interactions <- function(data, debug =FALSE){
     matches = as.data.frame( findOverlaps(genome_ragnes, genome_ragnes, minoverlap = 200) )
 
     matches = matches[matches$queryHits != matches$subjectHits, ]
-    
+    if (debug == TRUE){
+        ##:ess-bp-start::browser@nil:##
+        browser(expr=is.null(.ESSBP.[["@14@"]]))##:ess-bp-end:##
+        a =0
+    }
     if(nrow(matches) > 0){
         #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)
         overlap_df=data.frame(matches)
@@ -475,7 +487,7 @@ f_add_tf_interactions <- function(data, debug =FALSE){
         flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
                                         #str(overlap_df)
         if(nrow(overlap_pairs)>0){
-            #tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            tf_interaction_impact2 = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
             tf_interaction_impact = f_multiple_pair_tf_interaction(overlap_pairs, sample_cols, tf_regions, debug = FALSE)
 
             dim(tf_interaction_impact)
@@ -485,11 +497,7 @@ f_add_tf_interactions <- function(data, debug =FALSE){
             row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
             tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
             cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
-            if (debug == TRUE){
-                ##:ess-bp-start::browser@nil:##
-browser(expr=is.null(.ESSBP.[["@14@"]]))##:ess-bp-end:##
-                a =0
-            }
+
             duplicated_rows = duplicated(tf_valid_interaction_impact$feature_tf)
             transcript_data_merge = rbind(data, tf_valid_interaction_impact[!duplicated_rows,])
             
@@ -782,7 +790,7 @@ f_merge_two_dfs <- function(df1, df2){
 
 
 f_filter_training_features <- function(final_train_data, batch_name){
-    if(batch_name == 'SNP'){
+    if(batch_name == 'SNP' | batch_name == 'SNPinTF'){
         flog.info('batch mode:%s', batch_name)
         output_data = final_train_data[, grep('(SNP|gene.RNASEQ)', colnames(final_train_data))]
     }else if(batch_name == 'TF'){
@@ -795,6 +803,8 @@ f_filter_training_features <- function(final_train_data, batch_name){
     output_data$population = final_train_data$population
     return (output_data)
 }
+
+
 
 t_filter_training_features <- function(){
       #write.table( final_train_data, file='./data/test/t_filter_training_features.txt')  
