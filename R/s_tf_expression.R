@@ -10,11 +10,11 @@
 #install.packages(packageurl, repos=NULL, type="source")
 #install.packages('caret')
 #install.packages('car')
+source('~/expression_var/R/s_project_funcs.R')
 library(biomaRt)
 library(stringr)
 library(caret)
 source('~/R/s_function.R', chdir = TRUE)
-
 
 library("optparse")
 
@@ -27,9 +27,9 @@ opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
 if (is.null(opt$batch_name)){
-    #batch_name = '54samples_peer'
+    batch_name = '54samples_genebody'
     #batch_name = '462samples_quantile_rmNA'
-    batch_name = '462samples_log_quantile'
+    #batch_name = '462samples_log_quantile'
     seperator = ' '
 }else{
     batch_name = opt$batch_name
@@ -46,21 +46,32 @@ batch_output_dir = f_p('./data/%s/', batch_name)
 
 
 read_flag = FALSE
+transcript_flag = FALSE
 if (read_flag){
     # define biomart object
     mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL", dataset = "hsapiens_gene_ensembl", host="grch37.ensembl.org", path="/biomart/martservice"  )
+    mart_attributes=(listAttributes(mart))
+    mart_attributes[grep('end_position', mart_attributes$name, ignore.case = T),]
     # query biomart
     #all.entrezgene <- unique( getBM(attributes = c("ensembl_gene_id", 'ensembl_transcript_id', 'chromosome_name','transcript_start', 'transcript_end', 'strand', 'entrezgene'), values = "*", mart = mart) )
-    all.entrezgene <- unique( getBM(attributes = c("ensembl_gene_id", 'ensembl_transcript_id', 'chromosome_name','transcript_start', 'transcript_end', 'strand', 'uniprot_genename', 'external_gene_name', 'wikigene_name'), values = "*", mart = mart) )
-    row.names(all.entrezgene) = all.entrezgene$ensembl_transcript_id
-    sum(duplicated(all.entrezgene))
+    #all.entrezgene <- unique( getBM(attributes = c("ensembl_gene_id", 'ensembl_transcript_id', 'chromosome_name','transcript_start', 'transcript_end', 'strand', 'uniprot_genename', 'external_gene_name', 'wikigene_name'), values = "*", mart = mart) )
+    all.entrezgene <- unique( getBM(attributes = c("ensembl_gene_id", 'chromosome_name','start_position', 'end_position', 'strand', 'uniprot_genename', 'external_gene_name'), values = "*", mart = mart) )
+    all.entrezgene$ensembl_transcript_id = all.entrezgene$ensembl_gene_id
+    colnames(all.entrezgene) = c("ensembl_gene_id", 'chromosome_name','transcript_start', 'transcript_end', 'strand', 'uniprot_genename', 'external_gene_name', 'ensembl_transcript_id')
+    all.entrezgene = all.entrezgene[!duplicated(all.entrezgene$ensembl_gene_id),]
+    table(all.entrezgene$chromosome_name)
+    all.entrezgene = all.entrezgene[grep('MT|_|GL',all.entrezgene$chromosome_name, invert = T),]
+
+    row.names(all.entrezgene) = all.entrezgene$ensembl_transcript_id    
+    dim(all.entrezgene)
     head(all.entrezgene,n=20)
-    all.entrezgene[all.entrezgene$uniprot_genename == ''] = '.'
+    all.entrezgene[all.entrezgene==''] = '.'
     head(all.entrezgene, n=20)
-    write.table(all.entrezgene, file ='./data/raw_data/rnaseq/all.ensemble.genes.name',sep='\t', quote = FALSE, row.names = FALSE )
+    
+    write.table(all.entrezgene, file ='./data/raw_data/rnaseq/all.ensemble.genes.gene_start',sep='\t', quote = FALSE, row.names = FALSE )
 }else{
     cat('Skip query biomart data','\n')
-    all.entrezgene = read.table('./data/raw_data/rnaseq/all.ensemble.genes',sep='\t', header = TRUE)
+    all.entrezgene = read.table('./data/raw_data/rnaseq/all.ensemble.genes.gene_start',sep='\t', header = TRUE, quote = "")
     row.names(all.entrezgene) = all.entrezgene$ensembl_transcript_id
 }
 
@@ -127,16 +138,16 @@ forward_strand = rna_seq$strand == 1
 reverse_strand  = rna_seq$strand == -1
 cat('Forward strand:', sum(forward_strand), 'Reverse ', sum(!forward_strand) ,'\n')
 
-if(length(grep('sample', batch_name)) < 0){#make it default to whole gene regions
+if(length(grep('genebody', batch_name)) > 0){#make it default to whole gene regions
     rna_seq[forward_strand,'start'] = tmp_data[forward_strand, 'start'] - 2000
     rna_seq[forward_strand,'end'] = tmp_data[forward_strand, 'end'] + 2000
     rna_seq[reverse_strand,'start'] = tmp_data[reverse_strand, 'start'] - 2000
     rna_seq[reverse_strand,'end'] = tmp_data[reverse_strand, 'end'] + 2000
 }else{#Only the TSS regions
-    rna_seq[forward_strand,'start'] = tmp_data[forward_strand, 'start'] - 2000
-    rna_seq[forward_strand,'end'] = tmp_data[forward_strand, 'start'] + 2000
-    rna_seq[reverse_strand,'start'] = tmp_data[reverse_strand, 'end'] - 2000
-    rna_seq[reverse_strand,'end'] = tmp_data[reverse_strand, 'end'] + 2000
+    rna_seq[forward_strand,'start'] = tmp_data[forward_strand, 'start'] - 5000
+    rna_seq[forward_strand,'end'] = tmp_data[forward_strand, 'start'] + 5000
+    rna_seq[reverse_strand,'start'] = tmp_data[reverse_strand, 'end'] - 5000
+    rna_seq[reverse_strand,'end'] = tmp_data[reverse_strand, 'end'] + 5000
 }
 
 
@@ -165,7 +176,7 @@ rna_seq_sorted = rna_seq_reordered2[with(rna_seq_reordered2, order(chr, start, e
 
 head(rna_seq_sorted)
 
-#write.table(format(rna_seq_sorted, digits = 4), file = f_p('%s/rnaseq/transcript_data.bed', batch_output_dir), quote = F, sep = '\t', row.names = F)
+write.table(format(rna_seq_sorted, digits = 4), file = f_p('%s/rnaseq/transcript_data.bed', batch_output_dir), quote = F, sep = '\t', row.names = F)
 
 
 #Write a small subset of know TFs.
@@ -206,6 +217,16 @@ dim(random_mirna_expression)
 
 write.table(format(random_mirna_expression, digits = 4), f_p('./data/%s/rnaseq/random_miRNA_transcript_data.bed', batch_name), quote =FALSE, sep = '\t', row.names= FALSE)
 cat('Writing Finished','\n')
+
+
+
+
+
+
+
+
+
+
 
 
 
