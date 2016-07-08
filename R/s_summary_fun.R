@@ -1,3 +1,5 @@
+source('~/R/s_function.R', chdir = T)
+source('s_gene_regression_fun.R')
 f_merge_data <- function(data_dir, file_pattern, subset_genes = NULL, quite = FALSE){
 
     feature_files = list.files(data_dir, pattern = file_pattern)
@@ -56,8 +58,8 @@ f_summary_regression_results <- function(batch_name, chr_str, mode_name, rsync_f
     
     flog.info('Merge Performance')
     performance_df = f_merge_data(output_dir, '.*enet$')
-    subset_genes = as.character(subset(performance_df, performance > 0.01)$gene)
-    
+    #subset_genes = as.character(subset(performance_df, performance > 0.01)$gene)
+    subset_genes = performance_df$gene
     
     flog.info('Merge features')
     features_df=f_merge_data(output_dir, '.*enet.features$', subset_genes, quite = FALSE)
@@ -158,6 +160,7 @@ f_summary_selected_features <- function(loc_batch_name, chr_list, loc_mode, outp
     accurate_features = data.frame()
     for (chr_str in chr_list){
         return_list = f_summary_regression_results(loc_batch_name, chr_str, loc_mode, rsync_flag = FALSE, return_features = TRUE)
+        
         performance_df = return_list$performance
         features_df = return_list$features
         accurate_genes = rownames(subset(performance_df, performance > performance_threshold))
@@ -181,8 +184,13 @@ f_plot_performance_and_stats_test <- function(input_performance, mode1, mode2, s
     loc_performance <- input_performance%>% filter(gene %in% intersect_genes)
     mode1_perf = subset(loc_performance, mode == mode1)$performance
     mode2_perf = subset(loc_performance, mode == mode2)$performance
+    if(length(mode1_perf) <3){
+        flog.error('Few observations %s %s %s', length(mode1_perf), mode1, mode2)
+        return (0)
+    }
+    
     wilcox_stats=wilcox.test(mode1_perf, mode2_perf, paired = T, alternative = 'greater')
-    p <- qplot(mode1_perf, mode2_perf, alpha = I(1/7), size = I(1)) + geom_abline() + xlab(mode1) + ylab(mode2)
+    p <- qplot(mode1_perf, mode2_perf, alpha = I(1/3), size = I(1)) + geom_abline() + xlab(mode1) + ylab(mode2)
     bigger_count=sum( mode1_perf > mode2_perf)
     less_count = sum(mode1_perf < mode2_perf)
     equal_count = sum(mode1_perf == mode2_perf)
@@ -204,4 +212,34 @@ f_venn_plot_overlap <- function(sample_performance_merge, intersect_genes, thres
         a <- vennCounts(c3)
         vennDiagram(a)
     }
+}
+f_get_feature_file_for_one_gene <- function(target_gene, mode_name){
+    feature_file = f_p('./data/462samples_quantile_rmNA/rnaseq/chr22/%s/%s.enet.features', mode_name, target_gene)
+    feature_table = read.table(feature_file, header = T)
+    feature_table$abs_score = abs(feature_table$score)
+    sort_table = f_sort_by_col(feature_table, index = 'abs_score', T)
+    sort_table$abs_score = NULL
+    head(sort_table)
+    sort_table$chr ='chr22'
+    write.table(sort_table[,c('name', 'score')], file = f_p('%s.sort', feature_file), quote = F, sep = '\t', row.names = F)
+    
+    rownames(sort_table) = sort_table$name
+    sort_table$name = NULL
+    return (sort_table)
+}
+
+f_test_performance_drop_with_ml_variance <- function(sample_performance_merge, mode1, mode2){
+    intersect_genes = intersect( subset(sample_performance_merge, mode == mode1)$gene,
+                                subset(sample_performance_merge, mode == mode2)$gene )
+
+    compare_df = data.frame(m1 = subset(sample_performance_merge, mode == mode1 & gene %in% intersect_genes)$performance,
+                            m1_train = subset(sample_performance_merge, mode == mode1 & gene %in% intersect_genes)$train_performance,
+                            m2 = subset(sample_performance_merge, mode == mode2 & gene %in% intersect_genes)$performance,
+                            m2_train = subset(sample_performance_merge, mode == mode2 & gene %in% intersect_genes)$train_performance
+                            )
+
+
+
+    print(with( subset(compare_df, m1 > 0.05), fisher.test( m1 < m2,  m1<0.5*m1_train)))
+    print(with( subset(compare_df, m1 > 0.05), table( m1 < m2,  m1<0.5*m2_train)))
 }
