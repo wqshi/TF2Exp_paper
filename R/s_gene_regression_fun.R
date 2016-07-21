@@ -4,6 +4,7 @@ library(caret, quietly = TRUE)
 source('~/R/s_function.R', chdir = TRUE)
 library(GenomicRanges)
 library(futile.logger)
+source('s_double_cv_glmnet.R')
 tuneGridList = list(
      gbm = expand.grid(.interaction.depth = seq(1, 7, by = 2),
                             .n.trees = seq(100, 1000, by = 50),
@@ -12,7 +13,10 @@ tuneGridList = list(
                             .fraction = seq(.05, 1, length = 20)),
 
     glmnet = expand.grid(.alpha = c(0, .1, .2, .4, .6, .8, 1),
-                          .lambda = c(0.0001, 0.001, 0.005 ,seq(.01, .2, length = 20)))
+                          .lambda = c(0.0001, 0.001, 0.005 ,seq(.01, .2, length = 10))),
+    cv.glmnet = expand.grid(.alpha = c(0, .1, .2, .4, .6, .8, 1),
+                          .lambda = c(0.0001, 0.001, 0.005 ,seq(.01, .2, length = 10)))
+
 )
 
 f_get_server_name <- function(){
@@ -23,7 +27,7 @@ f_get_server_name <- function(){
 #my_train = final_train_data
 #target_col = 'gene.RNASEQ'
 #learner_name = 'rf'
-f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid, output_figure_path = NULL, quite=FALSE)
+f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid, output_figure_path = NULL, quite=FALSE, penalty_factors = NULL, nfolds=10, rm_high_cor = FALSE)
 {
     
   #cl <- makeCluster(3)
@@ -34,7 +38,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     cat('learner name:', learner_name, '\n')
     dim(my_train)
     head(my_train[,1:10])
-    zero_cols = nearZeroVar(my_train, freqCut = 90/10)
+    zero_cols = nearZeroVar(my_train, freqCut = 95/5)
     #zero_cols = NULL
     if (length(zero_cols) == 0)
         non_zero_data = my_train
@@ -48,7 +52,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     
     rm(my_train)
     
-    rm_high_cor = FALSE
+    #rm_high_cor = FALSE
     if (rm_high_cor == TRUE){
         numeric_cols = colnames(non_zero_data)[sapply(non_zero_data, is.numeric)]
         correlations <- cor(non_zero_data[, numeric_cols])
@@ -56,12 +60,10 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
         other_cols = setdiff(colnames(non_zero_data), numeric_cols)
         highCorr <- findCorrelation(correlations, cutoff = .9)
 
-    
-    
         if(length(highCorr) > 0){
             cat('Correlated columns:', length(highCorr), 'out of', ncol(non_zero_data), '\n')
             remain_cols = setdiff(colnames(non_zero_data), colnames(correlations)[highCorr])
-            #non_zero_data = non_zero_data[,  unique(c(remain_cols, target_col))]
+            non_zero_data = non_zero_data[,  unique(c(remain_cols, target_col))]
         }
     }
     
@@ -81,13 +83,19 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     #    #registerDoMC(cores = core_num - 2)
     #    cat('Core number', core_num, '\n')
     #}
-        
-   
+    
+    ##Set seeds.
+    set.seed(825)
+    seeds <- vector(mode = "list", length = 11)
+    for(i in 1:10) seeds[[i]]<- sample.int(n=1000, nrow(tuneGrid))
+    ##for the last model
+    seeds[[11]]<-sample.int(1000, 1)
  
   fitControl <- trainControl(method = "repeatedcv",
-                             number = 10,
+                             number = nfolds,
                              repeats = 1,
                              savePredictions = 'final',
+                             seeds = seeds,
                              allowParallel= TRUE)
   
   if (learner_name == 'enet')
@@ -107,7 +115,6 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
 
 
     ###Get the coefficient from the model########
-    
     coeff=predict(Fit$finalModel, type='coefficient', s=Fit$bestTune$fraction, mode='f')
     key_features = (coeff$coefficients[coeff$coefficients != 0])
 
@@ -166,7 +173,9 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
                         metric = "RMSE", 
                          method = 'glmnet',
                          trControl = fitControl,
-                        preProc = c("center", "scale"))
+                        preProc = c("center", "scale"),
+                        penalty.factor = penalty_factors[setdiff(colnames(non_zero_data), c(target_col))]
+                        )
 
     Fit$max_performance=Fit$results[rownames(Fit$bestTune), 'Rsquared']
     Fit$num_features = ncol(non_zero_data)
@@ -174,6 +183,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     glm_coef=as.data.frame(as.matrix(coef(Fit$finalModel, Fit$bestTune$lambda)))
     colnames(glm_coef) = c('coef')
     sig_coef=subset(glm_coef, coef!=0)
+    sig_coef=glm_coef
     key_features = sig_coef[,'coef']
     names(key_features) = rownames(sig_coef)
     Fit$key_features = key_features
@@ -183,6 +193,24 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     }
 
 
+  }else if(learner_name =='cv.glmnet'){
+              
+    
+    Fit = f_nest_cv_glmnet(as.matrix(non_zero_data), target_col, nfolds = nfolds,
+                           penalty_factors= penalty_factors[setdiff(colnames(non_zero_data), c(target_col))] ,
+                           debug = F)
+    Fit$max_performance=Fit$results[rownames(Fit$bestTune), 'Rsquared']
+    Fit$num_features = ncol(non_zero_data)
+    
+    glm_coef=as.data.frame(as.matrix(coef(Fit$finalModel, Fit$bestTune$lambda)))
+    colnames(glm_coef) = c('coef')
+    #sig_coef=subset(glm_coef, coef!=0)
+    sig_coef=glm_coef
+    key_features = sig_coef[,'coef']
+    names(key_features) = rownames(sig_coef)
+    Fit$key_features = key_features
+
+     
   }else if(learner_name == 'gbm'){
      
     Fit <- caret::train( as.formula(f_p('%s ~ .', target_col)), data = non_zero_data,
@@ -316,7 +344,9 @@ f_caret_classification_return_fit <- function(my_train, target_col, learner_name
 f_get_ecdf_value <- function(loc_array){
     return (ecdf(loc_array)(loc_array))
 }
-
+f_get_ecdf_value2 <- function(loc_array){
+    return (ecdf(unlist(loc_array))(unlist(loc_array)))
+}
 f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
     #Convert the score of TFs to [0-1]
     #print(match_line)
@@ -330,6 +360,7 @@ f_one_pair_tf_interaction <- function(match_line, sample_cols, tf_regions){
     
     new_line= tf_regions[match_line[1],]
     new_line[, sample_cols] = f_get_ecdf_value(line1) * f_get_ecdf_value(line2)
+    #new_line[, sample_cols] = line1 * line2
     new_line[,'feature'] = paste0(tf_regions[match_line[1],'feature_tf'], '-' ,tf_regions[match_line[2],'feature_tf'])
     new_line[,'type'] = 'TF-TF'
     new_line[, 'feature_tf'] = paste( sort(rownames(tf_regions)[match_line]), collapse = '-')
@@ -410,9 +441,10 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 
 f_convet_opts_to_output_dir <- function(opt){
     
-    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|permutation|TF_exp|add_predict_TF|YRI)',names(opt),
+    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|gm12878|miRNA|permutation|TF_exp|add_predict_TF|YRI)',names(opt),
                        value = TRUE, invert = TRUE, ignore.case = T)
     useful_df=ldply(opt[useful_opts])
+    useful_df = subset(useful_df, V1 != '' )
     useful_df$rename=str_replace_all(useful_df$.id, pattern = '_', replacement = '.')
     useful_df$V1=str_replace_all(useful_df$V1, pattern = '_', replacement = '.')
     useful_df[useful_df$V1 == 'FALSE','rename'] = str_replace_all(useful_df[useful_df$V1 == 'FALSE','rename'], 'add', 'rm')
@@ -425,7 +457,12 @@ f_convet_opts_to_output_dir <- function(opt){
 
 
 #input_data = mean_prediction
-f_plot_model_data <- function(input_data, plot_title, save_path){
+f_plot_model_data <- function(input_data, plot_title, save_path, debug = F){
+    if(f_judge_debug(debug)){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@7@"]]))##:ess-bp-end:##
+        
+    }
     cat('In plot model', plot_title, '\n')
     input_data$residual = mean_prediction$obs - mean_prediction$pred
     #str(input_data)
@@ -461,9 +498,195 @@ f_get_TF_expression<- function(output_dir, type = 'TF'){
     return (tf_gene_expression)
 }
 
+f_add_tf_interactions_old <- function(data, batch_mode = 'all', debug = FALSE){
+    #Add the TF interactions
+    valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
+    tf_regions = data
+    tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ|SNP|rs[0-9]+|esv[0-9]+', tf_regions$feature, invert= TRUE),]
+    tf_regions=tf_regions[!duplicated(tf_regions),]
+    tf_regions[, sample_cols] = apply(tf_regions[, sample_cols], MARGIN = 1, f_get_ecdf_value)
+    #apply1 = apply(tf_regions[, sample_cols], MARGIN = 1, f_get_ecdf_value)
+    #apply2 = apply(tf_regions[, sample_cols], MARGIN = 1, f_get_ecdf_value2)
+
+    
+    genome_ragnes = makeGRangesFromDataFrame(tf_regions[,c('chr', 'feature_start','feature_end')])
+
+    matches = as.data.frame( findOverlaps(genome_ragnes, genome_ragnes, minoverlap = 200) )
+
+    matches = matches[matches$queryHits != matches$subjectHits, ]
+
+    if (debug == T){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+        a = 0
+    }
+
+    
+    if(nrow(matches) > 0){
+        #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)    
+        
+        overlap_df=data.frame(matches)
+        str(overlap_df)
+        head(overlap_df)
+        overlap_df$name = paste0(tf_regions[overlap_df$queryHits,'feature_tf'], '-', tf_regions[overlap_df$subjectHits,'feature_tf'] )
+        overlap_pairs = overlap_df[overlap_df$name %in% valid_interaction$V1,]
+        flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
+                                        #str(overlap_df)
+        if(nrow(overlap_pairs)>0){
+            #tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            tf_interaction_impact = f_multiple_pair_tf_interaction(overlap_pairs, sample_cols, tf_regions, debug = FALSE)
+            
+            dim(tf_interaction_impact)
+            head(tf_interaction_impact)
+            
+            tf_interaction_impact$.id = NULL
+            row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
+            tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
+            cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
+            
+            transcript_data_merge = rbind(data, tf_valid_interaction_impact)
+            
+        }else{
+            cat('Empty overlaps','\n')
+        }
+        
+    }else{
+        transcript_data_merge = data
+    }
+
+    
+   ############
+   #Promoter - enhancer TF interactions
+   ############
+
+    promoter_index=as.numeric(which(tf_regions$type == 'promoter'))
+    enhancer_index=as.numeric(which(tf_regions$type == 'enhancer'))
+    pair_df=data.frame(promoter = rep(promoter_index, each = length(enhancer_index)), enhancer = rep(enhancer_index, times = length(promoter_index)))
+    
+    if(nrow(pair_df) > 0){
+        pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
+        promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
+        str(promoter_pairs)
+
+        if(nrow(promoter_pairs) > 0){
+            
+            promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            dim(promoter_interaction_impact)
+            promoter_interaction_impact$.id=NULL
+            rownames(promoter_interaction_impact) = make.names(paste0('P_E.', promoter_interaction_impact$feature), unique = TRUE)
+            
+            dim(transcript_data_merge)
+            transcript_data_merge = rbind(transcript_data_merge, promoter_interaction_impact)
+            cat('Interaction terms', dim(promoter_interaction_impact), '\n')
+            rm(promoter_interaction_impact)
+        }else{
+            cat('Empty promoter-enhancers!', '\n')
+        }
+    }
+
+    return (transcript_data_merge)
+    #data <<- transcript_data_merge
+}
+
+f_add_tf_interactions_old2 <- function(data, batch_mode = 'all', debug=FALSE){
+    if ( grepl('noInteract', batch_mode)) return (data)
+    
+    #Add the TF interactions
+    valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
+    tf_regions = data
+    tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ|SNP|rs[0-9]+|esv[0-9]+', tf_regions$feature, invert= TRUE),]
+    tf_regions=tf_regions[!duplicated(tf_regions),]
+
+    genome_ragnes = makeGRangesFromDataFrame(tf_regions[,c('chr', 'feature_start','feature_end')])
+
+    matches = as.data.frame( findOverlaps(genome_ragnes, genome_ragnes, minoverlap = 200) )
+
+    matches = matches[matches$queryHits != matches$subjectHits, ]
+    
+    if(nrow(matches) > 0){
+                                        #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)    
+        
+        overlap_df=data.frame(matches)
+        str(overlap_df)
+        head(overlap_df)
+        overlap_df$name = paste0(tf_regions[overlap_df$queryHits,'feature_tf'], '-', tf_regions[overlap_df$subjectHits,'feature_tf'] )
+        overlap_pairs = overlap_df[overlap_df$name %in% valid_interaction$V1,]
+
+        if (f_judge_debug(debug)){
+            ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+          
+        }
+        
+        if(batch_mode == 'fakeInteract'){
+            overlap_pairs_bak = overlap_pairs
+            overlap_pairs=cbind(sample(1:nrow(tf_regions), size = nrow(overlap_pairs)),
+                        sample(1:nrow(tf_regions), size = nrow(overlap_pairs)))
+        }
+
+        
+        flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
+                                        #str(overlap_df)
+        if(nrow(overlap_pairs)>0){
+            tf_interaction_impact = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            dim(tf_interaction_impact)
+            head(tf_interaction_impact)
+            
+            tf_interaction_impact$.id = NULL
+            row.names(tf_interaction_impact) = paste0('TF.overlap.',make.names(tf_interaction_impact$feature, unique = TRUE))
+            tf_valid_interaction_impact = tf_interaction_impact[tf_interaction_impact$feature %in% valid_interaction$V1,]
+            cat('Interaction terms', dim(tf_valid_interaction_impact), '\n')
+            
+            transcript_data_merge = rbind(data, tf_valid_interaction_impact)
+            
+        }else{
+            cat('Empty overlaps','\n')
+        }
+        
+    }else{
+        transcript_data_merge = data
+    }
+
+    
+   ############
+   #Promoter - enhancer TF interactions
+   ############
+
+    promoter_index=as.numeric(which(tf_regions$type == 'promoter'))
+    enhancer_index=as.numeric(which(tf_regions$type == 'enhancer'))
+    pair_df=data.frame(promoter = rep(promoter_index, each = length(enhancer_index)), enhancer = rep(enhancer_index, times = length(promoter_index)))
+                                        #str(pair_df)
+    if(nrow(pair_df) > 0){
+        pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
+        promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
+        if (batch_mode == 'fakeInteract' ){
+            promoter_pairs = pair_df[sample(1:nrow(pair_df), size = nrow(promoter_pairs)),]
+        }
+        
+        str(promoter_pairs)
+
+        if(nrow(promoter_pairs) > 0){
+            
+            promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
+            dim(promoter_interaction_impact)
+            promoter_interaction_impact$.id=NULL
+            rownames(promoter_interaction_impact) = make.names(paste0('P_E.', promoter_interaction_impact$feature), unique = TRUE)
+            
+            dim(transcript_data_merge)
+            transcript_data_merge = rbind(transcript_data_merge, promoter_interaction_impact)
+            cat('Interaction terms', dim(promoter_interaction_impact), '\n')
+            rm(promoter_interaction_impact)
+        }else{
+            cat('Empty promoter-enhancers!', '\n')
+        }
+    }
+
+    return (transcript_data_merge)
+    #data <<- transcript_data_merge
+}
 
 
-f_add_tf_interactions <- function(data, debug =FALSE){
+f_add_tf_interactions <- function(data, batch_mode = 'All' ,debug =FALSE){
                                         #Add the TF interactions
     tf_regions = data
     tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ|rs[0-9]+', tf_regions$feature, invert= TRUE),]
@@ -481,7 +704,7 @@ f_add_tf_interactions <- function(data, debug =FALSE){
         a =0
     }
 
-    
+    valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
     
     if(nrow(matches) > 0){
         #f_one_pair_tf_interaction(match_line, sample_cols, tf_regions)
@@ -491,11 +714,18 @@ f_add_tf_interactions <- function(data, debug =FALSE){
         overlap_df$name = paste0(tf_regions[overlap_df$queryHits,'feature_tf'], '-', tf_regions[overlap_df$subjectHits,'feature_tf'] )
         overlap_pairs = overlap_df[overlap_df$name %in% valid_interaction$V1,]
         flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
+
+        if(batch_mode == 'fakeInteract'){
+            overlap_pairs_bak = overlap_pairs
+            overlap_pairs=cbind(sample(1:nrow(tf_regions), size = nrow(overlap_pairs)),
+                                sample(1:nrow(tf_regions), size = nrow(overlap_pairs)))
+        }
+        
                                         #str(overlap_df)
         if(nrow(overlap_pairs)>0){
             #tf_interaction_impact2 = ldply(  apply(overlap_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
             tf_interaction_impact = f_multiple_pair_tf_interaction(overlap_pairs, sample_cols, tf_regions, debug = FALSE)
-
+            
             dim(tf_interaction_impact)
             head(tf_interaction_impact)
             
@@ -523,17 +753,22 @@ f_add_tf_interactions <- function(data, debug =FALSE){
     promoter_fragments = unique(as.character(subset(tf_regions, type == 'promoter')$hic_fragment_id))
     for ( promoter_fragment in promoter_fragments ){
         
-        promoter_index=as.numeric(which(tf_regions$type == 'promoter'
-                                        & tf_regions$hic_fragment_id == promoter_fragment))
-        enhancer_index=as.numeric(which(tf_regions$type == 'enhancer' &
-                                        tf_regions$pair == promoter_fragment))
+        #promoter_index=as.numeric(which(tf_regions$type == 'promoter' & tf_regions$hic_fragment_id == promoter_fragment))
+        #enhancer_index=as.numeric(which(tf_regions$type == 'enhancer' & tf_regions$pair == promoter_fragment))
+
+        promoter_index=as.numeric(which(tf_regions$type == 'promoter'))
+        enhancer_index=as.numeric(which(tf_regions$type == 'enhancer'))
+        
         pair_df=data.frame(promoter = rep(promoter_index, each = length(enhancer_index)), enhancer = rep(enhancer_index, times = length(promoter_index)))
                                         #str(pair_df)
         if(nrow(pair_df) > 0){
             pair_df$name = paste0(tf_regions[pair_df$promoter,'feature_tf'], '-', tf_regions[pair_df$enhancer,'feature_tf'] )
             promoter_pairs=pair_df[pair_df$name %in% valid_interaction$V1,]
             str(promoter_pairs)
-
+            if (batch_mode == 'fakeInteract' ){
+                promoter_pairs = pair_df[sample(1:nrow(pair_df), size = nrow(promoter_pairs)),]
+            }
+        
             if(nrow(promoter_pairs) > 0){
                 
                 #promoter_interaction_impact = ldply(  apply(promoter_pairs[,1:2], MARGIN = 1, f_one_pair_tf_interaction, sample_cols, tf_regions) )
@@ -664,13 +899,13 @@ t_correct_gm12878_bias <-function(){
 
 
 
-f_add_population_and_gender <- function(obj, add_YRI, select_pop){
+f_add_population_and_gender <- function(obj, add_YRI, select_pop, target_col = 'gene.RNASEQ'){
     #input_data$population = NULL
     
     input_data = obj$data
     snyder_samples = obj$snyder_samples
     input_data[,'population'] = as.character(sample_info[rownames(input_data), c('pop')])
-    input_data[,'gender'] = sample_info[rownames(input_data), c('gender')] == 'male'
+    input_data[,'gender'] = as.numeric(sample_info[rownames(input_data), c('gender')] == 'male')
     input_data$population = as.factor(input_data$population)
     input_data$gender = as.factor(input_data$gender)
  
@@ -710,10 +945,20 @@ f_add_population_and_gender <- function(obj, add_YRI, select_pop){
         flog.warn('Unknown population %s', select_pop)
     }
 
+
+
+    
+    
     return (output_data)
 }
 
 
+f_change_category_data <- function(input_data, target_col){
+    dummies <- dummyVars(as.formula(f_p('%s ~ .', target_col)), data = input_data)
+    non_zero_data1=as.data.frame(predict(dummies, newdata = input_data))
+    non_zero_data1[[target_col]] = input_data[[target_col]]
+    return (non_zero_data1)
+}
 
 
  t_add_population_and_gender <-function(){
@@ -762,6 +1007,8 @@ f_get_genotype_matrix <- function(chr_str){
 f_get_genotype_matrix_for_gene <- function(gene_name, flank_length = 1e6){
 
     #Two hidden parameters: all.entrezgene and gtX because they are too big.
+
+    
     gene_id = str_replace(gene_name, '[.].*', '')
 
     geneinfo <- all.entrezgene[gene_id,]
@@ -795,18 +1042,39 @@ f_merge_two_dfs <- function(df1, df2){
 }
 
 
-f_filter_training_features <- function(final_train_data, batch_name){
+f_filter_training_features <- function(final_train_data, batch_name, target_col, debug = FALSE){
+    if (f_judge_debug(debug)) {
+        ##:ess-bp-start::browser@nil:##
+        browser(expr=is.null(.ESSBP.[["@5@"]]))##:ess-bp-end:##
+    }
+
+
     if(batch_name == 'SNP' | batch_name == 'SNPinTF'){
         flog.info('batch mode:%s', batch_name)
         output_data = final_train_data[, grep('(SNP|gene.RNASEQ)', colnames(final_train_data))]
-    }else if(batch_name == 'TF'){
+    }else if(batch_name == 'TF' | batch_name == 'noInteract' | batch_name == 'fakeInteract'){
         flog.info('batch mode:%s', batch_name)
         output_data = final_train_data[, grep('^SNP', colnames(final_train_data), invert = T)]
+    }else if(batch_name == 'TFShuffle'){
+        interaction_cols = grep('P_E|TF.overlap', colnames(final_train_data), value = T)
+        output_data = final_train_data[, grep('^SNP', colnames(final_train_data), invert = T)]
+        output_data[, interaction_cols] = final_train_data[sample(x = 1:nrow(final_train_data)), interaction_cols]
+    }else if (batch_name == 'AlltfShuffle'){
+        
+        snp_data = final_train_data[, grep('rs[0-9]+|esv[0-9]+', colnames(final_train_data), value = T)]
+        tf_data = final_train_data[, grep('rs[0-9]+|esv[0-9]+', colnames(final_train_data), value = T, invert = T)]
+        shuffled_tf_data = tf_data[sample(x = 1:nrow(final_train_data), size = nrow(final_train_data)),]
+        output_data = cbind(snp_data, shuffled_tf_data)
+        
     }else{
         flog.info('Error mode %s', batch_name)
         output_data = final_train_data
     }
-    output_data$population = final_train_data$population
+    #output_data$population = final_train_data$population
+    #output_data$population = final_train_data$gender
+
+    f_input_stats(output_data, batch_name)
+    
     return (output_data)
 }
 
@@ -846,6 +1114,89 @@ if (getOption('run.main', default=TRUE)) {
 
 
 
+f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty){
+    input_data = input_data_raw[, colnames(input_data_raw) != 'gene.RNASEQ']
+    if ( (!'cor' %in% colnames(cor_vector)) | add_penalty == FALSE) {
+        penalty_factors = rep(1, ncol(input_data))
+        names(penalty_factors) = colnames(input_data)
+        return ( penalty_factors )
+    }
+    
+    real_max_cor = max(cor_vector$cor[cor_vector$cor != 1])
+    penalty_factors = rep(1-real_max_cor, times = ncol(input_data))
+    names(penalty_factors) = colnames(input_data)
+    intersect_cols = intersect(rownames(subset(cor_vector, cor != 1)), names(penalty_factors))
+    penalty_factors[intersect_cols] = 1 - cor_vector[intersect_cols, 'cor']
+    return (penalty_factors)
+}
 
 
+f_get_train_performance <- function(mod, dat, outcome){
+    if ('train_perf' %in% names(mod)){
+        test_perf = mod$train_perf[1,'Rsquared']
+    }else{
+        test_preds = predict(mod, newdata = dat)
+        test_perf <- R2(test_preds, dat[, outcome])
+    }
+    return (test_perf)
+}
+    
+f_parse_key_features_report_performance <- function(fit, transcript_data, transcript_id, results_dir, gene, debug  = FALSE){
+    ##Collect features.
+    if (f_judge_debug(debug)){
+    ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+    }
+    train_perf = f_get_train_performance(fit, final_train_data, 'gene.RNASEQ')
+    output_file = f_p('%s/%s.enet',  results_dir, transcript_id)
+    prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' , alpha=0, lambda=0, stringsAsFactors = F)
+    collected_features = data.frame()
 
+    key_features = str_replace_all(names(fit$key_features),'`','')                                   
+    feature_cols = c('feature_start', 'feature_end')
+    features_df = transcript_data[key_features, feature_cols ]
+    
+    rownames(features_df) = key_features
+    shared_features = intersect(key_features, rownames(transcript_data))
+    features_df[shared_features, ] = transcript_data[shared_features,feature_cols]
+
+    features_df$name = paste0(transcript_id, '|' ,rownames(features_df))
+    features_df$score = fit$key_features
+    
+    collected_features = rbind(collected_features, features_df)
+    write.table(collected_features, file = gzfile(f_p('%s.features.gz', output_file)), sep = '\t', quote = FALSE, row.names =FALSE)
+
+
+    ##Performance part    
+    max_performance = fit$max_performance
+    RsquaredSD =fit$results[rownames(fit$bestTune), 'RsquaredSD' ]
+    print(fit$results)
+    cat("\n", 'train_perf', train_perf ,'performance', max_performance, 'SD', RsquaredSD, 'Number of features:', nrow(features_df) )
+    prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(train_perf), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features), fit$bestTune[1,1], fit$bestTune[1,2]))
+    #print(prediction_performance)
+    
+    flog.info('Output file: %s', output_file)
+
+    prediction_performance= prediction_performance[-1,]
+    write.table(prediction_performance, file = output_file , sep = '\t', quote=FALSE, row.names = FALSE)
+}
+
+
+f_judge_debug<-function(debug_flag){
+    return (f_get_server_name() == 'loire' & debug_flag)
+}
+
+f_input_stats <- function(input_data, batch_mode){
+    library(stringr)
+    cat('Input stats', batch_mode, '\n')
+    print(table(str_replace(colnames(input_data), '[.].*', '')))
+}
+
+
+#batch_mode = 'All'
+#data=f_filter_training_features(final_train_data_bak, 'SNP', target_col)
+#data=f_filter_training_features(final_train_data_bak, 'All', target_col)
+#data=f_filter_training_features(final_train_data_bak, 'AlltfShuffle', target_col)
+#data=f_filter_training_features(final_train_data_bak, 'TF', target_col)
+#data=f_filter_training_features(final_train_data_bak, 'noInteract', target_col)
+#data=f_filter_training_features(final_train_data_bak, 'fakeInteract', target_col)
