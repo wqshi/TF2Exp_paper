@@ -93,6 +93,7 @@ print tf_name_pd.head()
 
 def f_subet_variation_according_to_tf_distance(variation_data_raw, tf_name, variation_dis):
     #print ''
+    #Subset or selcted the variations to which are closest to the peak max of targeted TF.
     variation_dis.index  = variation_dis.start.astype(str)
     variation_data_raw.index = variation_data_raw.start.astype(str)
     intersect_pos = list(set(variation_dis.index).intersection(set(variation_data_raw.index)))
@@ -100,7 +101,6 @@ def f_subet_variation_according_to_tf_distance(variation_data_raw, tf_name, vari
     assigned_locations = np.logical_and( subset_dis[tf_name] == subset_dis.min_dis, ~subset_dis.min_dis.isnull())
     variation_assigned_to_tf = variation_data_raw.ix[ subset_dis.index[assigned_locations],:]
     return variation_assigned_to_tf
-
 
 
 def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir):
@@ -139,9 +139,11 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         variation_data_raw = pd.read_csv(variation_file, sep =',')
         variation_data_raw['start'] = variation_data_raw['pos'].astype(int) -1
         variation_data_raw['end'] =  variation_data_raw['pos'].astype(int)
-        variation_data = f_subet_variation_according_to_tf_distance(variation_data_raw, loc_peak_tf, variation_dis)
-        
-        
+        if 'nearest' in batch_name:
+            variation_data = f_subet_variation_according_to_tf_distance(variation_data_raw, loc_peak_tf, variation_dis)
+            logging.info()
+        else:
+            variation_data = variation_data_raw
 
         #print variation_data.ix[:,0:10].head()
 
@@ -150,7 +152,7 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
 
         if (len(tf_variation_cols) == 0):
             logging.warning('Find 0 matched prediction for %s'%loc_tf)
-        elif (len(tf_variation_cols) == 0) > 1 :
+        elif (len(tf_variation_cols) >1):
             logging.warning('Find more than 1 matched prediction for %s'%loc_tf)
 
         #tmp_bed_file = tempfile.NamedTemporaryFile(dir = tf_variation_dir, prefix = 'tmp.bed' , delete=False, bufsize = 10000000)
@@ -162,7 +164,7 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         variation_data.ix[:,['chr', 'start', 'end', tf_selected_column ]].to_csv(tmp_bed_file , header = False, index = False ,sep = '\t')
         #print variation_data.columns
         #print variation_data.shape
-
+        
         #Intersect with the tf_binding regions.
         tf_variation_data = tf_regions_table.overlap_with_feature_bed(tmp_bed_file, 3, value_name=sample_id)
         #print tf_regions_table.data.shape
