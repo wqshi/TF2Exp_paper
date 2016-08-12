@@ -1,5 +1,4 @@
 
-
 from p_project_metadata import *
 
 my.f_print_list(['===='])
@@ -22,8 +21,10 @@ kg_dir = '%s/data/raw_data/wgs/1kg/' % project_dir
 ###Subset each individual######12
 sample_df = pd.read_csv('%s/output/sample.list' % batch_output_dir, sep = '\t', header = None)
 print sample_df.head()
+print sample_df.shape
 sample_list = sample_df[1].tolist()
 
+print 'NA12878' in sample_list
 
 chr_list = []
 for i in range(1,23):
@@ -37,6 +38,7 @@ for i in range(1,23):
 chr_list.append('X')
 chr_list.append('Y')
 
+chr_list = ['22']
 for chr_num in chr_list:
     my.f_ensure_make_dir('%s/chr_vcf_files/chr%s/' % (batch_output_dir, chr_num))
     chr_vcf_file= "%s/ALL.chr%s.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz" % ( kg_dir, chr_num)
@@ -46,7 +48,7 @@ for chr_num in chr_list:
     index_cmd = 'tabix -f -p vcf %s ' % node_chr_vcf
     my.f_shell_cmd(index_cmd)
 
-
+quit()
 def process_one_sample(sample_id, chr_list):
     #import ipdb; ipdb.set_trace()
     print '===========%s============' % sample_id
@@ -56,8 +58,10 @@ def process_one_sample(sample_id, chr_list):
         my.f_shell_cmd(bcf_subset_cmd)
 
 print sample_list
-process_one_sample('NA18486', chr_list)
 
+#Add NA12878 to the dataset.
+#process_one_sample('NA12878', chr_list)
+process_one_sample('HG00101', ['1'])
 
 from joblib import Parallel, delayed  
 import multiprocessing
@@ -67,8 +71,13 @@ import multiprocessing
 num_cores = 3 #multiprocessing.cpu_count()-4
 print num_cores
 
+
+
 for loc_chr in chr_list:
-    results = Parallel(n_jobs=num_cores)(delayed(process_one_sample)(sample_id, [loc_chr]) for sample_id in sample_list)  
+    break
+    results = Parallel(n_jobs=num_cores)(delayed(process_one_sample)(sample_id, [loc_chr]) for sample_id in sample_list)
+
+
 
 
 
