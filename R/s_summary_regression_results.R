@@ -7,7 +7,7 @@ library(dplyr)
 library(matrixStats)
 setwd('~/expression_var/R/')
 source('~/R/s_function.R', chdir = TRUE)
-source('s_gene_regression_fun.R')
+suppressMessages(source('s_gene_regression_fun.R'))
 source('s_summary_fun.R')
 library(stringr)
 library("optparse")
@@ -30,12 +30,17 @@ if (is.null(opt$batch_name)){
     #batch_name = '462samples_quantile'
     #batch_name = '462samples_quantile_rmNA'
     #batch_name = '462samples_log_quantile'
-    batch_name = '445samples_sailfish'
+    loc_batch_name = '445samples_sailfish'
     ##chr_str = 'chr22'
-    chr_str = 'chr22'
+    chr_num_list = c(22)
+    collecion_name = 'snyder.norm'
 }else{
-    batch_name = opt$batch_name
-    chr_str = opt$chr
+    loc_batch_name = opt$batch_name
+    if (opt$chr == '1chr'){
+        chr_num_list = c(22)
+    }else{
+        chr_num_list = c(22, 10, 2)
+    }
     colletion_name = opt$collection
 }
 
@@ -109,32 +114,21 @@ AlltfShuffle = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.
 )
 
 modes_list$snpOnly=modes_list$addPenalty[c('All', 'TF', 'SNP')]
-
-#loc_batch_name = '462samples_quantile_rmNA'
-#collection_name = 'rmCor'
-
-
-
 modes_list$addPenaltyRmCor = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'rmCor')
 modes_list$snyder.norm = f_create_new_mode_list(modes_list$addPenalty, 'snyder.original', 'snyder.norm')
 modes_list$maxit = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'maxit1M')
 modes_list$lm = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'lm')
 
-loc_batch_name = '445samples_sailfish'
 #loc_batch_name = '445samples_snpOnly'
 collection_name='snyder.norm'
 #mode_list = modes_list[[collection_name]][c(1,3)]
-mode_list = modes_list[[collection_name]][c('All', 'TF', 'SNP')]
-options(width=60)
+mode_list = modes_list[[collection_name]]#[c('All', 'TF', 'SNP')]
+
+
 #' #Modes used in the analysis
 print(str_replace_all(mode_list, 'rm.histone_model.|other|new.batch', ''), width = 50)
 
 
-
-#loc_batch_name = '462samples_genebody'
-#mode_list = genebody_list
-#chr_num_list = c(22)
-chr_num_list = c(22, 2, 10)
 
 f_built_file_name_from_paras('s_summary_regression_results', f_p('%s_%s_%schrs', loc_batch_name, collection_name, length(chr_num_list)))
 
