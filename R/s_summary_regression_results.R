@@ -16,7 +16,8 @@ options(dplyr.width = Inf)
 
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
-    make_option(c("--chr"),      type="character", default='chr22', help="chromosome name", metavar="character")    
+    make_option(c("--collection"),      type="character", default='addPenalty', help="The parameter based name", metavar="character"),
+    make_option(c("--chr_batch"),      type="character", default='1chr', help="1chr for chr22, 3chr for (2, 10, 22)", metavar="character")
 );
 
 opt_parser = OptionParser(option_list=option_list);
@@ -28,255 +29,247 @@ if (is.null(opt$batch_name)){
     #batch_name = '462samples_snyder_norm'
     #batch_name = '462samples_quantile'
     #batch_name = '462samples_quantile_rmNA'
-    batch_name = '462samples_log_quantile'
-    #chr_str = 'chr22'
+    #batch_name = '462samples_log_quantile'
+    batch_name = '445samples_sailfish'
+    ##chr_str = 'chr22'
     chr_str = 'chr22'
-    
 }else{
     batch_name = opt$batch_name
     chr_str = opt$chr
+    colletion_name = opt$collection
 }
 
+modes_list = list()
 
-#loc_mode = mode_list[1]
-mode_list = c('rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.all_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_add.batch.random',
-              'rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.all_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_rm.batch.random')
-
-mode_list =c('rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.None_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_add.batch.random',
-             'rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.None_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_rm.batch.random')
-
-non_pop_list = c(All='rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.all_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_batch.mode.all',
+modes_list$non_pop = c(All='rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.all_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_batch.mode.all',
                  SNP='rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.all_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_batch.mode.SNP',
                  TF='rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.all_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_batch.mode.TF',
                  random = 'rm.histone_rm.miRNA_model.glmnet_rm.predict.TF_add.YRI_population.all_TF.exp.type.fakeTF_add.gm12878_new.batch.462samples.snyder.original_batch.mode.random')
 
 
-pop_list = c(
+modes_list$pop = c(
     AlltfShuffle ='rm.histone_rm.miRNA_model.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.AlltfShuffle',
     noInteract = 'rm.histone_rm.miRNA_model.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.noInteract',
     All             = 'rm.histone_rm.miRNA_model.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.all',
              SNP = 'rm.histone_rm.miRNA_model.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.SNP',
+             SNPinTF = 'rm.histone_rm.miRNA_model.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.SNPinTF',
     fakeInteract = 'rm.histone_rm.miRNA_model.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.fakeInteract',
              #random = 'rm.histone_rm.miRNA_model.glmnet_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.random',
              TF = 'rm.histone_rm.miRNA_model.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.TF')
 
-genebody_list = c( SNP='rm.histone_rm.miRNA_model.glmnet_population.all_add.gm12878_new.batch.462samples.genebody_batch.mode.SNP',
-                            TF = 'rm.histone_rm.miRNA_model.glmnet_population.all_add.gm12878_new.batch.462samples.genebody_batch.mode.TF',
-                            SNPinTF = 'rm.histone_rm.miRNA_model.glmnet_population.all_add.gm12878_new.batch.462samples.genebody_batch.mode.SNPinTF')
-
-cvglmnet_list = c(
+modes_list$cvglmnet = c(
     AlltfShuffle ='rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.AlltfShuffle',
     #noInteract = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.noInteract',
     All             = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.all',
     #AllnoInteract = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.AllnoInteract',
-    SNP = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.SNP'
-    #fakeInteract = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.fakeInteract',
+    SNP = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.SNP',
+    SNPinTF = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.SNPinTF',
+    fakeInteract = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.fakeInteract',
              #random = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.random',
-             #TF = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.TF'
+             TF = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.TF',
+             TFShuffle = 'rm.histone_rm.miRNA_model.cv.glmnet_rm.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.TFShuffle'
 )
 
-penalty_list = c(TF = 'rm.histone_rm.miRNA_model.glmnet_add.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.TF',
-                 all = 'rm.histone_rm.miRNA_model.glmnet_add.penalty_population.all_add.gm12878_new.batch.462samples.snyder.original_batch.mode.all')
+modes_list$rmCor=c(
+All            = 'rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.462samples.snyder.original_batch.mode.All_other.info.rmCor',
+SNP         = 'rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.462samples.snyder.original_batch.mode.SNP_other.info.rmCor',
+SNPinTF  = 'rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.462samples.snyder.original_batch.mode.SNPinTF_other.info.rmCor'
+)
 
-loc_batch_name = '462samples_quantile_rmNA'
-mode_list = cvglmnet_list
+modes_list$keepCor=c(
+All = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.All_other.info.normCor',
+SNPinTF = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNPinTF_other.info.normCor',
+SNP = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNP_other.info.normCor',
+InterOnlySNPinTF='rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.InterOnlySNPinTF_other.info.normCor'
+)
+
+modes_list$rmPenalty=c(
+All = 'rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.All_other.info.normCor',
+SNPinTF = 'rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNPinTF_other.info.normCor',
+SNP = 'rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNP_other.info.normCor',
+TF = 'rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.TF_other.info.normCor',
+InterOnlySNPinTF='rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.InterOnlySNPinTF_other.info.normCor'
+)
+
+
+modes_list$addPenalty=c(
+All = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.All_other.info.normCor',
+#AllfilterMinor = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.AllfilterMinor_other.info.normCor',
+#AlltopTF = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.AlltopTF_other.info.normCor',
+#All = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.All_other.info.normCor',
+SNPinTF = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNPinTF_other.info.normCor',
+SNP = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNP_other.info.normCor',
+TF = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.TF_other.info.normCor'
+,
+#AllrmHic='rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.All_other.info.normCor',
+#AllnoInteract = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.AllnoInteract_other.info.normCor',
+##InterOnlySNPinTF='rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.InterOnlySNPinTF_other.info.normCor',
+#noInteract ='rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.noInteract_other.info.normCor',
+AlltfShuffle = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.AlltfShuffle_other.info.normCor'
+)
+
+modes_list$snpOnly=modes_list$addPenalty[c('All', 'TF', 'SNP')]
+
+#loc_batch_name = '462samples_quantile_rmNA'
+#collection_name = 'rmCor'
+
+
+
+modes_list$addPenaltyRmCor = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'rmCor')
+modes_list$snyder.norm = f_create_new_mode_list(modes_list$addPenalty, 'snyder.original', 'snyder.norm')
+modes_list$maxit = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'maxit1M')
+modes_list$lm = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'lm')
+
+loc_batch_name = '445samples_sailfish'
+#loc_batch_name = '445samples_snpOnly'
+collection_name='snyder.norm'
+#mode_list = modes_list[[collection_name]][c(1,3)]
+mode_list = modes_list[[collection_name]][c('All', 'TF', 'SNP')]
+options(width=60)
+#' #Modes used in the analysis
+print(str_replace_all(mode_list, 'rm.histone_model.|other|new.batch', ''), width = 50)
+
 
 
 #loc_batch_name = '462samples_genebody'
 #mode_list = genebody_list
-chr_num_list = c(22)
-####################Compare the 462samples peer#####################
-#chr_num_list = c(22, 2, 10, 20)
+#chr_num_list = c(22)
+chr_num_list = c(22, 2, 10)
 
+f_built_file_name_from_paras('s_summary_regression_results', f_p('%s_%s_%schrs', loc_batch_name, collection_name, length(chr_num_list)))
+
+
+
+#' #Collect the performance data.
 sample_performance_merge = f_collect_performance_in_multiple_chrs(loc_batch_name, mode_list, chr_num_list)
 sample_performance_merge$performance = sample_performance_merge$rsq
 results_dir = f_p('./data/%s/rnaseq/results/', loc_batch_name)
 
 
+
+#' #Thresholds
 table(sample_performance_merge$mode)
-
-#ggplot(sample_performance_merge, aes(x=train_performance, y = performance, color = mode)) + geom_point() + geom_abline()
-#ggplot(sample_performance_merge, aes(x=train_performance - performance, color = mode)) + geom_density()
-
-
-sample_performance_merge %>% group_by(mode) %>%
-    dplyr::summarise(good_predictions = sum(performance > 0.1),
-                               mean_performance = mean(performance),
-                               mean_SD = mean(SD),
-                               feature_num = mean(selected_features),
-                     max_feature = max(selected_features))
-head(sample_performance_merge)
-sample_performance_merge %>% filter(gene == 'ENSG00000239900.7')
-
-
-sample_performance_merge %>% filter( performance > 0.5 * train_performance ) %>% group_by(mode) %>%
-    dplyr::summarise(good_predictions = sum(performance > 0.1),
-                               mean_performance = mean(performance),
-                               mean_SD = mean(SD),
-                               feature_num = mean(selected_features),
-                     max_feature = max(selected_features))
-
-
-gene_count = table(sample_performance_merge$gene) == length(mode_list)
-intersect_genes = names(gene_count)[gene_count]
-union_good_genes <- unique(as.character((sample_performance_merge %>% filter(performance > threshold, performance < 1 ,mode != 'random') )$gene))
-
-
-
 #threshold = quantile( subset(sample_performance_merge, mode == 'random')$performance , probs = 0.99 )
 threshold = 0.05
 
 
 
+#' #Stats For the robust genes
+sample_performance_merge %>% filter( performance > 0.8 * train_performance, performance > 0.05 ) %>% group_by(mode) %>%
+    dplyr::summarise(good_predictions = sum(performance > threshold),
+                               mean_performance = mean(performance),
+                               mean_SD = mean(SD),
+                               feature_num = mean(selected_features),
+                     max_feature = max(selected_features))
+
+head(sample_performance_merge)
+
+table(sample_performance_merge$mode)
+
+
+#' #Stats For the intersect genes
+gene_count = table(sample_performance_merge$gene) == length(mode_list)
+intersect_genes = names(gene_count)[gene_count]
+
 intersect_stats <- sample_performance_merge %>% filter(performance > threshold, gene %in% intersect_genes) %>% group_by(mode) %>%
     dplyr::summarise(Total = length(intersect_genes),
                                good_predictions = sum(performance > threshold),
                                mean_performance = mean(performance),
-                               #mean_SD = mean(SD),
+                               mean_train = mean(train_performance),
+                               mean_SD = mean(SD),
                                mean_input_feature = mean(num_feature), 
                                mean_selected_features = mean(selected_features),
                                max_feature = max(selected_features))
 print(intersect_stats)
-write.table(format(as.data.frame(basic_stats), digits = 3), f_p('%s/basic_stats.txt', results_dir), quote = FALSE, sep = '\t', row.names = FALSE)
+#write.table(format(as.data.frame(intersect_stats), digits = 3), f_p('%s/basic_stats.txt', results_dir), quote = FALSE, sep = '\t', row.names = FALSE)
+
+
+#' Ensemble all the models
+##sample_performance_merge %>% filter(performance > 0.6) %>% arrange(gene)
+target_modes = c('All', 'TF', 'SNP', 'SNPinTF')
+ensemble_mode=sample_performance_merge %>% filter(gene %in% intersect_genes, mode %in% target_modes,
+                                                  performance > threshold) %>% group_by(gene) %>%
+    dplyr::summarise(performance = max(rsq), index = mode[which.max(rsq)])
+cat('Distribution of selected models:\n')
+table(ensemble_mode$index)
+snp_mode = sample_performance_merge %>% filter(mode == 'SNP', gene %in% ensemble_mode$gene)
+mean_improvement=(mean(ensemble_mode$performance) - mean(snp_mode$performance))/mean(snp_mode$performance)
+cat('Mean improvment over the SNP model', mean_improvement, '\n')
+if ('AllrmHic' %in% sample_performance_merge$mode){
+    rmHic = subset(sample_performance_merge, mode == 'AllrmHic' & performance > 0.05)
+    rownames(rmHic) = rmHic$gene
+    dim(rmHic)
+    all = subset(sample_performance_merge, mode == 'All')
+    rownames(all) = all$gene
+    mean_improvement=(mean(all[rownames(rmHic),'performance'], na.rm = TRUE) - mean(rmHic$performance))/mean(rmHic$performance)
+    cat('Mean improvment over the SNP model', mean_improvement, '\n')
+}
+
+#sample_performance_merge %>% filter(gene == as.data.frame(ensemble_mode)[2,'gene'])
 
 
 
-####Venn plot######
-library(limma)
 
-TF <- subset( sample_performance_merge, gene  %in% intersect_genes & mode == 'TF')$performance >= threshold
-SNP<- subset( sample_performance_merge, gene %in% intersect_genes & mode == 'SNP')$performance >= threshold
-All<-subset( sample_performance_merge, gene %in% intersect_genes & mode == 'All')$performance >= threshold
-c3 <- cbind(TF, SNP, All)
-a <- vennCounts(c3)
-vennDiagram(a)
+print(intersect_stats)
+
+#' ##Plots to compare the performance
+f_venn_plot_overlap(sample_performance_merge, intersect_genes, threshold)
 
 table(sample_performance_merge$mode)
 
 good_performance <- sample_performance_merge %>% filter(gene %in% intersect_genes, rsq > 0.05)
 dim(sample_performance_merge)
-dim(good_performance)
 
-
+head(good_performance)
 
 good_performance2 = good_performance %>% filter(mode == 'SNP' | mode == 'All', performance > 0.05)
-dim(good_performance2)
-table(good_performance2$mode)
 ggplot(good_performance2, aes(x = performance , color = mode )) + geom_density()
-ggplot(, aes(x = performance , color = mode )) + geom_density()
+
+head(good_performance2)
+group_A  = 'AlltfShuffle'
+group_B  = 'All'
+thres = 0.005
 
 
 
-f_plot_performance_and_stats_test(good_performance, 'All', 'SNP' )
-f_plot_performance_and_stats_test(good_performance, 'SNP', 'AllnoInteract' )
+
+
+f_compare_improvment_for_two_groups('SNP', "All", good_performance)
+f_compare_improvment_for_two_groups('SNP', "TF", good_performance)
+f_compare_improvment_for_two_groups('SNP', "SNPinTF", good_performance)
+f_compare_improvment_for_two_groups('SNPinTF', "TF", good_performance)
+
+
+f_plot_performance_and_stats_test(good_performance, 'SNP', 'All' )
+f_plot_performance_and_stats_test(good_performance, 'AllrmHic', 'All')
+f_plot_performance_and_stats_test(good_performance, 'SNPinTF', 'TF' )
+f_plot_performance_and_stats_test(good_performance, 'SNP', 'TF' )
+f_plot_performance_and_stats_test(good_performance, 'All', 'TF' )
+#f_plot_performance_and_stats_test(good_performance, 'SNP', 'AllnoInteract' )
+f_plot_performance_and_stats_test(good_performance, 'SNPinTF', 'SNP' )
+f_plot_performance_and_stats_test(good_performance, 'SNPinTF', 'TF' )
+f_plot_performance_and_stats_test(good_performance, 'AllnoInteract', 'All' )
 f_plot_performance_and_stats_test(good_performance, 'SNP', 'AlltfShuffle')
-f_plot_performance_and_stats_test(good_performance, 'All', 'AlltfShuffle' )
+f_plot_performance_and_stats_test(good_performance, 'AlltfShuffle', 'All' )
+f_plot_performance_and_stats_test(good_performance, 'TF', 'fakeInteract' )
+f_plot_performance_and_stats_test(good_performance, 'TF', 'TFShuffle')
+f_plot_performance_and_stats_test(good_performance, 'TF', 'noInteract')
 #f_plot_performance_and_stats_test(good_performance, 'All', 'TF')
 #f_plot_performance_and_stats_test(good_performance, 'TF', 'noInteract')
 #f_plot_performance_and_stats_test(good_performance, 'TF', 'fakeInteract')
 #f_plot_performance_and_stats_test(good_performance, 'noInteract', 'fakeInteract') #Not significant
 
-#good_intersect genes.
-sample_performance_merge$gene = as.character(sample_performance_merge$gene)
-robust_performance <- sample_performance_merge %>% filter( rsq > 0.5 * train_performance, performance > 0.05) 
-robust_genes = names(gene_count)[gene_count]
-dim(robust_performance)
-f_plot_performance_and_stats_test(robust_performance, 'SNP', 'All')
-f_plot_performance_and_stats_test(robust_performance, 'TF', 'All')
-f_plot_performance_and_stats_test(robust_performance, 'TF', 'SNP')
-f_plot_performance_and_stats_test(robust_performance, 'TF', 'noInteract')
 
-robust_performance$gene
+#' #Test performance drop against model variance
+try(f_test_performance_drop_with_ml_variance(sample_performance_merge, 'SNP', 'SNPinTF'))
 
-length(unique(sample_performance$gene))
 sample_performance_merge$Model = str_replace(sample_performance_merge$mode, 'random', 'Random')
-
-concise_sample_performance = sample_performance_merge[,c('rsq', 'mode', 'selected_features')]
-print(concise_sample_performance)
+ggplot(subset(sample_performance_merge, performance > 0), aes(x = performance , color = mode )) + geom_density()
 
 
-table(sample_performance_merge$mode)
-
-four_modes_plot <-ggplot(sample_performance_merge, aes(x = performance , color = mode )) + geom_density()
-ggplot(subset(sample_performance_merge, mode == 'AlltfShuffle' & rsq > 0), aes(x = rsq , color = mode )) + geom_density()
-
-
-TF_random_plot <- ggplot(subset(sample_performance_merge, mode != 'All' & mode != 'SNP'),
-                         aes(x = performance, color = mode )) + geom_density()
-ggsave(f_p('%s/TF_random_performance.tiff', results_dir), plot = TF_random_plot)
-
-sample_performance_merge
+#' #GO analysis, wait until the whole genome analysis.
+source('s_GO_analysis_predictions.R')
+#thres is working.
+f_performance_go_analysis(sample_performance_merge, 'TF', thres = 0.2) #check this after the whole genome analysis.
 
 
-TF_SNP_All_performance_plot <- ggplot(subset(sample_performance_merge, mode != 'random'),
-                                      aes(x = performance, color = mode )) + geom_density() + theme_set(theme_grey(base_size = 22)) 
-ggsave(f_p('%s/TF_SNP_All_performance.tiff', results_dir), plot = TF_SNP_All_performance_plot)
-
-
-All_performance_plot <- ggplot(subset(sample_performance_merge, performance >0),
-                                      aes(x = performance, color = Model )) + xlab('Adjusted R square') +
-    geom_density() + theme_set(theme_grey(base_size = 18))
-                                                                                                         
-All_performance_plot
-ggsave(f_p('%s/All_performance.tiff', results_dir), plot = All_performance_plot)
-
-
-
-stop()
-#####Get high accracte data#####
-
-
-
-#####Count the feature categories######
-all_feature_table = f_summary_selected_features(loc_batch_name, c('chr22'), mode_list[3], output_feature_file = 'feature.table', threshold )
-
-SNP_feature_table = f_summary_selected_features(loc_batch_name, c('chr22'), mode_list[5], output_feature_file = 'feature.table.tf', threshold )
-
-
-
-#######Find top features####################
-all_performance <- sample_performance_merge %>% filter(mode == 'All', chr == 'chr22')
-
-(f_sort_by_col(all_performance, 'performance', decr_flag = T)[1:5,])$gene
-
-
-
-
-##############Adjust R-square#####################
-good_features = subset(small_features, adjust.rsq>0.05 )
-table(good_features$mode)
-
-adjust_basic_stats <- good_features %>% group_by(mode) %>%
-    dplyr::summarise(good_predictions = length(mode),
-                               mean_performance = mean(adjust.rsq),
-                               feature_num = mean(selected_features),
-                                max_feature = max(selected_features))
-
-################Best genes#####################
-best_index=which.max(sample_performance_merge$performance)
-best_gene = sample_performance_merge[best_index,'gene']
-sample_performance_merge %>% filter(gene == best_gene)
-
-
-
-
-##############Sort features#################
-
-target_gene = 'ENSG00000172404.4'
-feature_file = f_p('./data/462samples_quantile_rmNA/rnaseq/chr22/%s/%s.enet.features', mode_list[1], target_gene)
-feature_table = read.table(feature_file, header = T)
-feature_table$abs_score = abs(feature_table$score)
-sort_table = f_sort_by_col(feature_table, index = 'abs_score', T)
-sort_table$abs_score = NULL
-head(sort_table)
-sort_table$chr ='chr22'
-write.table(sort_table[,c('name', 'score')], file = f_p('%s.sort', feature_file), quote = F, sep = '\t', row.names = F)
-
-feature_file = f_p('./data/462samples_quantile_rmNA/rnaseq/chr22/%s/%s.enet.features', mode_list[3], target_gene)
-feature_table = read.table(feature_file, header = T)
-feature_table$abs_score = abs(feature_table$score)
-sort_table = f_sort_by_col(feature_table, index = 'abs_score', T)
-sort_table$abs_score = NULL
-head(sort_table)
-sort_table$chr ='chr22'
-write.table(sort_table[,c('name', 'score')], file = f_p('%s.sort', feature_file), quote = F, sep = '\t', row.names = F)
