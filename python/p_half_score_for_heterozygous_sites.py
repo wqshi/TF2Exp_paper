@@ -37,31 +37,34 @@ vcf_dir = '%s/chr_vcf_files/%s/%s/' % (batch_output_dir, mode_str ,chr_num)
 
 
 
-def f_half_score_het_sites(variation_file, deepsea_dir):
+def f_half_score_het_sites(variation_file, deepsea_dir, half_flag = True):
     sample_id = os.path.basename(variation_file).split('.')[0]
     variation_data = pd.read_csv(variation_file, sep =',', compression= 'gzip').dropna()
+    variation_data.pos = variation_data.pos.astype(str)
+    
     print sample_id
     #print variation_data.ix[1105:1110,1:6].head()
     genotype_data=variation_data[['name']]
-
+    
     #print genotype_data.shape
     #print pd.isnull(variation_data).any(1).nonzero()[0]
     #print genotype_data[:5]
     assert len(genotype_data) == variation_data.shape[0], 'Size of genotype data not match'
-
+    
     
     pattern = re.compile('(0.1|1.0)')
     het_selection = [ re.match(pattern, genotype) is not None  for genotype in genotype_data.ix[:,'name'].tolist() ]
-
+    #import ipdb; ipdb.set_trace()
     assert len(het_selection) == variation_data.shape[0], 'Het selection is different from the variation_data'
-
+    
     numeric_cols =my.grep_list('GM12878', variation_data.columns)
     
     het_variation = variation_data.copy()
-    het_variation.ix[het_selection, numeric_cols] = 0.5 * variation_data.ix[het_selection, numeric_cols]
-
-    het_variation.to_csv( "%s/het/%s.diff"%(deepsea_dir, sample_id), index = False, sep = ',')
-
+    if half_flag == True:
+        het_variation.ix[het_selection, numeric_cols] = 0.5 * variation_data.ix[het_selection, numeric_cols]
+    assert all(het_variation.pos == variation_data.pos)
+    het_variation.to_csv( "%s/het/%s.diff"%(deepsea_dir, sample_id), index = False, sep = ',', float_format='%.4e')
+    
 
 
 
@@ -73,6 +76,7 @@ class TestDatabaseTable(unittest.TestCase):
     def test_half_score(self):
         variation_file_list = my.f_shell_cmd( "find %s -name '*.diff.gz'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
         f_half_score_het_sites(variation_file_list[0], deepsea_dir)
+        
         
         half_file_list = my.f_shell_cmd( "find %s/het/ -name '*.diff'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
         variation_data = pd.read_csv(variation_file_list[0], sep =',', compression= 'gzip').dropna()
@@ -90,10 +94,11 @@ class TestDatabaseTable(unittest.TestCase):
         print type(variation_data.ix[:, col_name])
         
         het_data = het_data.ix[het_data.ix[:, col_name]!=0,:]
+        #import ipdb; ipdb.set_trace()
         
-        equal_rows = abs( variation_data.ix[:, col_name] - het_data.ix[:, col_name] ) < 0.0000000000000001
+        equal_rows = abs( variation_data.ix[:, col_name] - het_data.ix[:, col_name] ) < 1e-20
         homo_rows = variation_data.name == '1|1'
-        assert sum(equal_rows) == sum(homo_rows), 'Homo sites are not eaqual by %s out of %s' %(sum(equal_rows) - sum(homo_rows), len(homo_rows)  )
+        assert sum(equal_rows) == sum(homo_rows), 'Homo sites are not eaqual: not altered rows %s, home rows %s, total rows %s. This place is hard to satisfied because of approximation probelm. Exprect 0.9 overlap' %(sum(equal_rows), sum(homo_rows), len(homo_rows)  )
 
     
 if __name__ == "__main__":
@@ -102,9 +107,11 @@ if __name__ == "__main__":
     suite = unittest.TestLoader().loadTestsFromTestCase( TestDatabaseTable )
     unittest.TextTestRunner(verbosity=1,stream=sys.stderr).run( suite )
 
-    
+    half_flag = 'homo' not in batch_name
     variation_file_list = my.f_shell_cmd( "find %s -name '*.diff.gz'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
 
+    print 'half_flag : %s' % half_flag
+    
     for loc_variation_file in variation_file_list:
-        f_half_score_het_sites(loc_variation_file, deepsea_dir)
+        f_half_score_het_sites(loc_variation_file, deepsea_dir, half_flag)
 
