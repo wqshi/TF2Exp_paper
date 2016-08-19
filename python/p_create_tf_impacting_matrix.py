@@ -16,7 +16,6 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Extract the deepsea predictions of one tf.Deepsea prediction is sample based. The output of this script is TF based.')
 
-
 print '==========',__doc__
 
 if __doc__ is None:
@@ -54,14 +53,19 @@ print peak_file_df_rmdup.head()
 variation_dis = pd.read_csv('%s/data/raw_data/wgs/1kg/variant_tf_distance/variation_dis_to_peakMax.%s' % (project_dir, chr_num), sep = '\t',na_values = '.')
 variation_dis.drop_duplicates('start', inplace = True)
 variation_dis['min_dis']=variation_dis.ix[:,4:].apply(np.nanmin, axis = 1)
-
+if 'nearest' not in batch_name:
+    variation_dis = variation_dis.ix[0:10,:]
 print len(variation_dis.columns.values[4:-1])
-
 print set(peak_file_df_rmdup.tf) - set(variation_dis.columns.values[4:-1])
-
-
 print variation_dis.shape
 
+
+#Read the SNP locations.
+snp_data = pd.read_csv('%s/data/raw_data/wgs/1kg/additive_dir/%s.bed' % (project_dir, chr_num), sep = '\t',na_values = '.')
+print snp_data.head()
+snp_data = snp_data.ix[:,['chr', 'start', 'SNP']]
+snp_data.index  = snp_data.start.astype(str)
+print snp_data.columns
 
 ############################
 
@@ -103,7 +107,7 @@ def f_subet_variation_according_to_tf_distance(variation_data_raw, tf_name, vari
     return variation_assigned_to_tf
 
 
-def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir):
+def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, variation_dis, batch_name):
     #import ipdb; ipdb.set_trace()
     loc_peak_tf = f_convert_deepseaTF_to_peakTF(loc_tf)
     try:
@@ -112,7 +116,7 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         logging.error("Don't find the peak file for %s " % loc_tf)
         return 0
     #import ipdb; ipdb.set_trace()
-    if loc_peak_tf not in variation_dis.columns.values:
+    if 'nearest' in batch_name and loc_peak_tf not in variation_dis.columns.values:
         logging.info('Missing %s in variation dis', loc_peak_tf)
         return 0
 
@@ -129,9 +133,10 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
     print tf_regions_table.file_path
     
     tf_regions_table.extract_bed()
-
-    
     #import ipdb; ipdb.set_trace()
+
+    snp_coverage_rate = 0
+    logging.info('Processed TF: %s' % loc_tf)
     
     for variation_file in variation_file_list:
     
@@ -139,9 +144,24 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         variation_data_raw = pd.read_csv(variation_file, sep =',')
         variation_data_raw['start'] = variation_data_raw['pos'].astype(int) -1
         variation_data_raw['end'] =  variation_data_raw['pos'].astype(int)
+        #import ipdb; ipdb.set_trace()
         if 'nearest' in batch_name:
             variation_data = f_subet_variation_according_to_tf_distance(variation_data_raw, loc_peak_tf, variation_dis)
-            logging.info()
+            
+        elif 'snpOnly' in batch_name or my.f_get_server_name() == 'loire':
+            #import ipdb; ipdb.set_trace()
+            #logging.debug('Keep SNPs')
+            variation_data_raw.index = variation_data_raw.start.astype(str)
+            intersect_pos = list(set(snp_data.index).intersection(set(variation_data_raw.index)))
+            variation_data=variation_data_raw.ix[intersect_pos,:]
+            snp_coverage_rate = snp_coverage_rate + float(len(intersect_pos))/(len(variation_data_raw.index)*len(variation_file_list))
+        elif 'rareVar' in batch_name:
+            #import ipdb; ipdb.set_trace()
+            #logging.debug('Keep rare variants')
+            variation_data_raw.index = variation_data_raw.start.astype(str)
+            rare_pos = list(set(variation_data_raw.index) - set(snp_data.index))
+            variation_data=variation_data_raw.ix[rare_pos,:]
+            snp_coverage_rate = snp_coverage_rate + float(len(rare_pos))/(len(variation_data_raw.index)*len(variation_file_list))
         else:
             variation_data = variation_data_raw
 
@@ -150,6 +170,7 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         #extract_variation_data from variation_table
         tf_variation_cols = my.grep_list('%s.*%s'%(target_cell, loc_tf), variation_data.columns)
 
+        
         if (len(tf_variation_cols) == 0):
             logging.warning('Find 0 matched prediction for %s'%loc_tf)
         elif (len(tf_variation_cols) >1):
@@ -163,7 +184,7 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
 
         variation_data.ix[:,['chr', 'start', 'end', tf_selected_column ]].to_csv(tmp_bed_file , header = False, index = False ,sep = '\t')
         #print variation_data.columns
-        #print variation_data.shape
+        #print variation_data.shapes
         
         #Intersect with the tf_binding regions.
         tf_variation_data = tf_regions_table.overlap_with_feature_bed(tmp_bed_file, 3, value_name=sample_id)
@@ -179,7 +200,7 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         tf_regions_table.merge_feature(agg_variation_data)
 
         os.remove(tmp_bed_file)
-
+    logging.info('%s %s SNP coverage %s', batch_name, loc_tf, snp_coverage_rate)
     if tf_regions_table.loc_file is not None:
         os.remove(tf_regions_table.loc_file)
 
@@ -189,14 +210,15 @@ for loc_tf in loc_tf_list[2:]:
     parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir)
     break 
 
-Parallel(n_jobs=4)(delayed(parse_one_tf)(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir) for loc_tf in loc_tf_list)  
+Parallel(n_jobs=4)(delayed(parse_one_tf)(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, variation_dis, batch_name) for loc_tf in loc_tf_list)  
 
 
 
 
 #Delete the half data dir.
-import shutil
-shutil.rmtree(deepsea_dir)
+if my.f_get_server_name() != 'loire':
+    import shutil
+    shutil.rmtree(deepsea_dir)
 
 
 
