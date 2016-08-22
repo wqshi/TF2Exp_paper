@@ -42,7 +42,7 @@ f_preprocess_feature_data <- function(data_dir, file_pattern, subset_genes = NUL
         ##:ess-bp-start::browser@nil:##
 browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
     }
-    
+        
     feature_files = list.files(data_dir, pattern = file_pattern)
     
     cat('Total files', length(feature_files), '\n')
@@ -53,7 +53,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
     }
 
     
-    merge_file = f_p('%s/merge_features', data_dir)
+    merge_file = f_p('%s/merge_features.control', data_dir)
 
     #check whether should redo the file reading.
     read_flag = TRUE
@@ -64,17 +64,24 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
                 break
             }
         }
-
+        
         if (read_flag == TRUE){
             flog.info('Read existing merged files')
             feature_merge =  read.table(file = (f_p('%s/merge_features', data_dir)), header = T)
-              table_total_count = read.table(file = (f_p('%s/merge_feature_count', data_dir)), header = T)
-              return (list(feature_merge = feature_merge, table_total_count = table_total_count))
+
+            if (file.info(f_p('%s/merge_features.control', data_dir))$size > 10){
+                control_merge =  read.table(file = (f_p('%s/merge_features.control', data_dir)), header = T)
+            }else{
+                control_merge = NULL
+            }
+            table_total_count = read.table(file = (f_p('%s/merge_feature_count', data_dir)), header = T)
+            return (list(feature_merge = feature_merge, table_total_count = table_total_count, control_merge = control_merge))
         }
     }
 
     flog.info('Merge feature files')
     feature_list = list()
+    control_list = list()
     table_list = list()
     for (feature_file in feature_files){
         cat(feature_file,'\n')
@@ -90,26 +97,34 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
             
             cat('Error in ', feature_file, '\n')
             next
-        }
-        
+        }        
         gene_feature$rename = str_replace(gene_feature$name, '.*[|]', '')
         gene_feature$rename = str_replace(gene_feature$rename, '[.][0-9]*', '')
         gene_feature$rename = str_replace(gene_feature$rename, pattern = '[.][0-9]+$', '')
         gene_feature$rename = str_replace(gene_feature$rename, 'SNP.*', 'SNP')
         table_count = table(gene_feature$rename)
         feature_list[[feature_file]] = subset(gene_feature, score != 0)
+        control_features=gene_feature[!grepl('Intercept', gene_feature$name) & grepl('promoter|enhancer', gene_feature$name) & gene_feature$score == 0,]
+        control_sel=sample(x=1:nrow(control_features), size = sum(!grepl('Intercept', gene_feature$name) & grepl('promoter|enhancer', gene_feature$name) & gene_feature$score != 0))
+
+        if (length(control_sel) > 0){
+            control_list[[feature_file]]  = control_features[control_sel,]
+        }
+        
         table_list[[feature_file]] = data.frame(feature = names(table_count), count = as.vector(table_count))
                                         #feature_merge = rbind(feature_merge, subset(gene_feature, score != 0))
         #table_merge = rbind(table_merge, data.frame(feature = names(table_count), count = as.vector(table_count)))
     }
     library(plyr)
     feature_merge = rbind.fill(feature_list)
+    control_merge = rbind.fill(control_list)
     table_merge = rbind.fill(table_list)
     
     table_total_count <- table_merge %>% group_by(feature) %>% dplyr::summarise(total_count = sum(count))
     write.table(feature_merge, file = (f_p('%s/merge_features', data_dir)), quote = FALSE, row.names = FALSE)
+    write.table(control_merge, file = (f_p('%s/merge_features.control', data_dir)), quote = FALSE, row.names = FALSE)
     write.table(table_total_count, file = (f_p('%s/merge_feature_count', data_dir)), quote = FALSE, row.names = FALSE )
-    return (list(feature_merge = feature_merge, table_total_count = table_total_count))
+    return (list(feature_merge = feature_merge, table_total_count = table_total_count, control_merge = control_merge))
     
 }
 
@@ -132,7 +147,7 @@ f_add_adjust_rsq <- function(input_performance, total_samples){
 f_summary_regression_results <- function(batch_name, chr_str, mode_name, rsync_flag = TRUE, return_features = FALSE){
     
     output_dir = f_p("./data/%s/rnaseq/%s/%s/", batch_name, chr_str, mode_name)
-      
+          
     #Rsync the features files back to the clustdell
     if (rsync_flag == TRUE){
         rsync_cmd = f_p("rsync -rav  --include '*enet*' --exclude '*' shi@clustdell.cmmt.ubc.ca:/home/shi/expression_var/data/%s/rnaseq/%s/%s/   ~/expression_var/data/%s/rnaseq/%s/%s/", batch_name, chr_str, mode_name, batch_name, chr_str, mode_name)
@@ -160,7 +175,7 @@ f_summary_regression_results <- function(batch_name, chr_str, mode_name, rsync_f
     #hist(performance$selected_features)
     cat('Mean performance:',mean(performance_df$performance), '\n')
     #hist(performance_df$performance)
-
+    library(dplyr)
     good_predictions <- performance_df %>% filter(performance > 0.25)
     
     cat(nrow(good_predictions), 'out of', nrow(performance_df), 'have good predictions(Rsquared > 0.25)','\n')
@@ -171,7 +186,7 @@ f_summary_regression_results <- function(batch_name, chr_str, mode_name, rsync_f
     performance_df = f_add_adjust_rsq(performance_df, total_samples = 370)
     
     if (return_features == TRUE){
-        return (list(features =features_df, performance = performance_df, feature_total_count = features_list$table_total_count ))
+        return (list(features =features_df, performance = performance_df, feature_total_count = features_list$table_total_count, control = features_list$control_merge ))
     }
     
     return (performance_df)
@@ -190,7 +205,7 @@ f_collect_performance_in_mode_list <- function(batch_name, chr_str, mode_list, r
         )
 
         if (class(result) == "try-error"){
-            cat('Error in ', chr, mode_list[loc_mode], '\n')
+            cat('Error in ', chr_str, mode_list[loc_mode], '\n')
             next
         }
         
@@ -238,7 +253,7 @@ f_collect_performance_in_multiple_chrs<- function(loc_batch_name, mode_list, chr
         
         chr_str = paste0('chr', chr_num)
         dir.create(f_p('./data/%s/rnaseq/%s/', loc_batch_name, chr_str))
-        
+                
         sample_performance = f_collect_performance_in_mode_list(loc_batch_name, chr_str, mode_list, rsync_flag = TRUE)
         sample_performance = as.data.frame(sample_performance)
         
