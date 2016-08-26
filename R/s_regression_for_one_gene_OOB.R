@@ -10,7 +10,7 @@ library("optparse")
 library(plyr)
 library(dplyr)
 flog.info('In OOB')
-
+source('s_double_cv_glmnet.R')
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
     make_option(c("--add_histone"), type="character", default='TRUE', help="output file name [default= %default]", metavar="character"),
@@ -19,7 +19,7 @@ option_list = list(
     make_option(c("--test"), type="character", default=NULL, help="output file name [default= %default]", metavar="character"),
     make_option(c("--gene"), type="character", default='', help="The name of gene", metavar="character"),
     make_option(c("--model"), type="character", default='enet', help="The machine learning method used, eg. enet, and rfe", metavar="character"),
-    make_option(c("--add_permutation"), type="character", default='FALSE', help="Permutate the train features", metavar="character"),
+    make_option(c("--add_penalty"), type="character", default='FALSE', help="Penalty factors for regression", metavar="character"),
     make_option(c("--chr_str"), type="character", default='chr22', help="Chromosome name", metavar="character"),
     make_option(c("--add_TF_exp_only"), type="character", default='FALSE', help="Add TF expression as the input features", metavar="character"),
     make_option(c("--add_predict_TF"), type="character", default='FALSE', help="Add TF predicted expression as the input features", metavar="character"),
@@ -28,7 +28,8 @@ option_list = list(
     make_option(c("--TF_exp_type"), type="character", default='TF', help="Read TF expression, faked TF, or random miRNA", metavar="character"),
     make_option(c("--add_gm12878"), type="character", default='TRUE', help="Whether to remove the GM12878 from the TF impact matrix", metavar="character"),
     make_option(c("--new_batch"), type="character", default='', help="Change the expression data to another batch", metavar="character"),
-    make_option(c("--batch_mode"), type="character", default='TF', help="Change the expression data to another batch", metavar="character")
+    make_option(c("--batch_mode"), type="character", default='TF', help="Change the expression data to another batch", metavar="character"),
+    make_option(c("--other_info"), type="character", default='', help="Other information wanted to add to the name of result dir", metavar="character")
 );
 
 flog.info('Before the opt parse')
@@ -38,42 +39,69 @@ opt = parse_args(opt_parser);
 str(opt)
 
 if (is.null(opt$batch_name)){
-    batch_name = '54samples_evalue'
+    #batch_name = '54samples_evalue'
     #batch_name = '462samples_genebody'
     #batch_name = '462samples_quantile_rmNA'
-    #batch_name = 'test'
+    #batch_name = '445samples_sailfish'
+    ##batch_name = '462samples_5k'
+    ##batch_name = 'test'
+    batch_name = '445samples_snpOnly'
     add_histone = TRUE
     add_miRNA = FALSE
     add_TF_exp = FALSE
     test_flag = TRUE
     tuneGrid = NULL
     #train_model = 'rf'
-    train_model = 'glmnet'
+    train_model = 'cv.glmnet'
     #gene = 'ENSG00000235478.1'
-    gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
+    #gene = 'ENSG00000241973.6'# The gene with old recode and good accruacy
     #gene='ENSG00000196576.10' : largest memory
     #gene = 'ENSG00000093072.11' # Gene in the test dir.
-
-
+    #gene = 'ENSG00000008735.10'
+    #gene = 'ENSG00000128245.10' #gene with negative rsq in 462samples.
     #gene = 'ENSG00000100321.10' #Gene with big difference when remove self interaction
     #gene = 'ENSG00000184702.13' #with smaler size.
-    permutation_flag = FALSE
-    chr_str = 'chr22'
+    #gene = 'ENSG00000100376.7' #Good performance with 0.6
+    #gene = 'ENSG00000243811.3'
+    gene = 'ENSG00000269948.1'
+    add_penalty = TRUE
+    #chr_str = 'chr22'
+    chr_str = 'chr10'
     add_TF_exp_only=FALSE
     add_predict_TF=FALSE
     add_YRI=TRUE
-    select_pop= 'all' #'None' #'all'
+    select_pop= 'None' #'all'
     TF_exp_type = 'fakeTF'
     add_gm12878=FALSE
-    new_batch = '54samples_peer'
+    #new_batch = '54samples_peer'
     #new_batch = '462samples_genebody'
+    #new_batch='462samples_snyder_original'
+    #new_batch='445samples_snyder_original'
+    new_batch='445samples_snyder_norm'
+    #batch_mode = 'noInteract'
+    #batch_mode = 'TF'
+    #batch_mode = 'fakeInteract'
+    #batch_mode = 'noInteract'
+    #batch_mode = 'SNP'
+    #batch_mode = 'AlltfShuffle'
+    #batch_mode = 'TFShuffle'
     batch_mode = 'TF'
+    #batch_mode = 'AllnoInteract'
+    #batch_mode = 'All'
+    #batch_mode = 'AllfilterMinor'
+    #batch_mode = 'AlltopTF'
+    #batch_mode = 'InterOnlySNPinTF'
+    #batch_mode = 'SNPinTF'
+    #batch_mode = 'AllsnpShuffle'
+    #batch_mode = 'InterOnlyAll'
+    #batch_mode = 'randomSNPinTF'
+    nfolds = 10
 }else{
     batch_name = opt$batch_name
     add_histone = opt$add_histone == 'TRUE'
     add_miRNA = opt$add_miRNA == 'TRUE'
     add_TF_exp = opt$add_TF_exp == 'TRUE'
-    permutation_flag = opt$add_permutation == 'TRUE'
+    add_penalty = opt$add_penalty == 'TRUE'
     test_flag = opt$test == 'TRUE'
     train_model = opt$model
     gene=opt$gene
@@ -89,23 +117,26 @@ if (is.null(opt$batch_name)){
     new_batch = opt$new_batch
     batch_mode = opt$batch_mode 
     tuneGrid = tuneGridList[[train_model]]
+    nfolds = 10
 }
 
+target_col = 'gene.RNASEQ'
+tuneGrid = tuneGridList[[train_model]]
 flog.info('Begin')
-
 model_str = 'all'
 cat('Tune Grid is NULL:', is.null(tuneGrid), '\n')
-print(tuneGrid)
+#rint(tuneGrid)
 
 
 output_dir = f_p('./data/%s/', batch_name)
 
-test_gene <- GENE(data = data.frame(), gene_name = gene, chr_str = chr_str, batch_name = batch_name)
-test_gene$read_data()
-sample_cols = test_gene$get_samples()
-test_gene$change_expression(new_batch, batch_mode)
-test_gene$subset_snps_in_tf_regions(batch_mode)
-
+if (!exists("test_gene")){
+    test_gene <- GENE(data = data.frame(), gene_name = gene, chr_str = chr_str, batch_name = batch_name)
+    test_gene$read_data()
+    sample_cols = test_gene$get_samples()
+    test_gene$change_expression(new_batch, batch_mode)#change when batch_mode == random
+    test_gene$subset_snps_in_tf_regions(batch_mode) #change data when batch_mode == SNPinTF
+}
 expression_data = test_gene$data
 
 dim(expression_data)
@@ -122,8 +153,6 @@ cat('The number of regulated transcripts:', length(regulated_genes_names), '\n')
 genes_names = regulated_genes_names
 cat('The number of investigated transcripts:', length(genes_names), '\n')
 
-prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' ,stringsAsFactors = F)
-collected_features = data.frame()
 sample_info = read.table(f_p('%s/chr_vcf_files/integrated_call_samples_v3.20130502.ALL.panel', output_dir ), header = TRUE, row.names = 1)
 
 #Read the miRNA interaction and expression data.
@@ -156,7 +185,6 @@ for (i in 1:length(genes_names)){
         cat('Skip TF gene', transcript_id, '\n')
     }
 
-    
     cat('\n','============',i, transcript_id, '==============','\n')
     sum(gene_with_regulatory_elements[transcript_id,])
     gene_with_regulatory_elements[transcript_id,]
@@ -197,32 +225,29 @@ for (i in 1:length(genes_names)){
     dim(transcript_data)
     dim(scaled_tmp)
     head10(transcript_data)
-    
-    ###Add permutation within features.#####
-    if (permutation_flag == TRUE){
-        sum(rowSums(is.na(transcript_data)) < 0.5 * nrow(transcript_data))
-        #transcript_data[7,]        
-        set.seed(11)
-        features = setdiff(rownames(transcript_data), c('gene.RNASEQ'))
-        permutation_index = sample(features, size = length(features))
-        cat('Permuate features:', permutation_index[1:5], '\n')
-        cat('Original features:', features[1:5], '\n')
-        transcript_data[features, sample_cols] = transcript_data[permutation_index, sample_cols]
-        
-    }
 
+    
     if (add_TF_exp == TRUE){
         transcript_data_tf_concentration[, sample_cols] = transcript_data[, sample_cols] * scaled_tmp[, sample_cols]
     }
     
     
+    
     ##Add TF-TF interactions
-    train_data_raw = f_add_tf_interactions_old2(transcript_data, debug = F)
+    #change when batch mode == noInteract, and fakeInteract
+    #train_data_raw <- f_add_tf_interactions_old2(transcript_data, batch_mode = batch_mode, debug = F) #only for fakeInteraction
+    
+    train_data_raw <- f_add_tf_interactions(transcript_data, batch_mode = batch_mode, hic_thres = NA, debug = F)
+    
     train_data = train_data_raw[,sample_cols]
     train_data[is.na(train_data)] = 0
     train_data_rmdup = train_data[!duplicated(train_data),]
     rownames(train_data)
-    
+    table(train_data_raw$type)
+    #table(train_data_raw1$type)
+    train_data_raw[grep('overlap', train_data_raw$feature),]
+    train_data_raw$feature_tf
+    colnames(train_data_raw)
     
     train_data2 = as.data.frame(t(train_data_rmdup))
     colnames(train_data2)
@@ -231,7 +256,7 @@ for (i in 1:length(genes_names)){
         final_train_data = train_data2[, none_histone_cols]
     }else{
         final_train_data  = train_data2
-    }    
+    }
     dim(final_train_data)
     colnames(final_train_data)
     if(add_miRNA == TRUE){
@@ -261,45 +286,67 @@ for (i in 1:length(genes_names)){
     dim(final_train_data)
     #Add predicted TF expression
     final_train_data = f_add_predicted_TF_expression(add_predict_TF, batch_name, final_train_data)
-    head10(final_train_data)
-    dim(final_train_data)
-    rownames(final_train_data)
+    
+    final_train_data_bak = final_train_data
+    final_train_data_filter <- f_filter_training_features(final_train_data, batch_mode, target_col, debug = T )   
+    flog.info('After add other feature data')
+
+    #final_train_data_filter <- f_filter_training_features(final_train_data_bak, 'SNP', target_col, debug = F )
+    #final_train_data_filter <- f_filter_training_features(final_train_data_bak, 'TF', target_col, debug = F )
+    #final_train_data_filter <- f_filter_training_features(final_train_data_bak, 'All', target_col, debug = F )
+    #final_train_data_filter <- f_filter_training_features(final_train_data_bak, 'SNPinTF', target_col, debug = F )
+    
     #Add population information
     obj<-f_get_test_data(empty_data = TRUE)
-    obj$data = final_train_data
-    final_train_data <- f_add_population_and_gender(obj, add_YRI, select_pop)
+    obj$data = final_train_data_filter
+    final_train_data_pop <- f_add_population_and_gender(obj, add_YRI, select_pop)
+    final_train_data = f_change_category_data(final_train_data_pop, target_col)
 
-    
+
+
+    #f_plot_cor_heatmap(final_train_data[, grep('SNP', colnames(final_train_data), invert = T, value =T)], 'heatmap.noSNP.tif')
     
     additional_cols  =grep('gender|hsa-miR|population', colnames(final_train_data), value = TRUE)
-    
     additional_data =transcript_data[rep('gene.RNASEQ', length(additional_cols)),]
     rownames(additional_data) = additional_cols
     additional_data[,sample_cols] = t(final_train_data[sample_cols, additional_cols])
     transcript_data = rbind(transcript_data, additional_data)
     
-    final_train_data <- f_filter_training_features(final_train_data, batch_mode)    
-    flog.info('After add other feature data')
 
-    #penalty_factors = f_add_penalty_factor(final_train_data, train_data_raw[,c('chr','cor')])
-    #dim(final_train_data)
-    #length(penalty_factors)
+    penalty_factors = f_add_penalty_factor(final_train_data, train_data_raw, add_penalty)
+    flog.info('Penalty factors %s', length(penalty_factors))
+    print(head(penalty_factors))
+
+    library(gplots)
+    dim(final_train_data)
+    #heatmap.2(as.matrix(abs(final_train_data)), Rowv = TRUE, Colv =TRUE, trace='none', scale = 'none' )
+
+    f_input_stats(final_train_data, batch_mode)
     
+    dim(final_train_data)
     output_figure_path = f_p('%s/%s.learn.curve.tiff',  results_dir, gene)
+    
     result <- try(
-        fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = train_model, tuneGrid, output_figure_path)
+        fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = train_model, tuneGrid, output_figure_path,
+                                              penalty_factors = penalty_factors, nfolds = nfolds, rm_high_cor = FALSE)
        ,silent=TRUE)
-        
+
+    #ear_zero_columns = colnames(final_train_data)[abs(apply(final_train_data, 2, mean)) < 0.01]
+    #pply(final_train_data[, near_zero_columns], 2, mean)
+    #plot(fit$finalModel$glmnet.fit)
+    #inal_train_data[, 'enhancer.PAX5.C20.4']
     if (class(result) == "try-error"){
         print(result)
+        
         cat('Error in ', transcript_id, '\n')
         next
     }
 
-    
+    #plot(fit$finalModel)
+        
     mean_prediction <- as.data.frame(fit$pred %>% group_by(as.factor(rowIndex)) %>% dplyr::summarise(pred = mean(pred), obs = mean(obs)))
     rownames(mean_prediction) = rownames(final_train_data)
-    mean_prediction$population = final_train_data$population
+    mean_prediction$population = final_train_data_pop$population
     colnames(mean_prediction)
     head(mean_prediction)
     f_assert(all(final_train_data$gene.RNASEQ == mean_prediction$obs), 'Error in retrieve gene expression')
@@ -313,46 +360,16 @@ for (i in 1:length(genes_names)){
         write.table(cbind(transcript_id, pred), file = pred_file, sep = '\t', quote=FALSE, row.names = FALSE)
     }
 
-    train_perf = f_get_train_performance(fit, final_train_data, 'gene.RNASEQ')
-    f_plot_model_data(mean_prediction, plot_title = f_p('%s \n R-squared: %.2f', transcript_id, fit$max_performance), save_path = f_p('%s/%s.enet.tif', results_dir, transcript_id) )
-
-    #plot(tmp_plot)
-    #ggsave('a.tiff', tmp_plot)
-    #ggsave('a2.tiff', tmp_plot, dpi = 72)
-    
-    flog.info('After training')
-
-    key_features = str_replace_all(names(fit$key_features),'`','')
-
-    #transcript_data[key_features,1:10]
-
-    feature_cols = c('chr', 'feature_start', 'feature_end')
-    features_df = transcript_data[key_features, feature_cols ]
-    
-    rownames(features_df) = key_features
-    shared_features = intersect(key_features, rownames(transcript_data))
-    features_df[shared_features, ] = transcript_data[shared_features,feature_cols]
-
-    features_df$name = paste0(transcript_id, '|' ,rownames(features_df))
-    features_df$score = fit$key_features
-
-    collected_features = rbind(collected_features, features_df)
-    
- 
-    max_performance = fit$max_performance
-    RsquaredSD =fit$results[rownames(fit$bestTune), 'RsquaredSD' ]
-    print(fit$results)
-    cat("\n", 'train_perf', train_perf ,'performance', max_performance, 'SD', RsquaredSD, 'Number of features:', nrow(features_df) )
-    prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(train_perf), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features)))
-    #print(prediction_performance)
+    if (fit$max_performance > 0.4){
+        a=f_plot_model_data(mean_prediction, plot_title = f_p('%s \n R-squared: %.2f', transcript_id, fit$max_performance),
+                            save_path = f_p('%s/%s.enet.tif', results_dir, transcript_id), debug = F)
+    }
+    f_parse_key_features_report_performance(fit, transcript_data, transcript_id, results_dir, debug = F)
 }
 
 
+print(warnings())
+f_debug <-function(){
+    source('s_debug.R')
+}
 
-output_file = f_p('%s/%s.enet',  results_dir, gene)
-
-flog.info('Output file: %s', output_file)
-
-prediction_performance= prediction_performance[-1,]
-write.table(prediction_performance, file = output_file , sep = '\t', quote=FALSE, row.names = FALSE)
-write.table(collected_features, file = f_p('%s.features', output_file), sep = '\t', quote = FALSE, row.names =FALSE)
