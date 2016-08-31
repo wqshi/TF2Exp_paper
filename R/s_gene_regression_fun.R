@@ -195,7 +195,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
 
   }else if(learner_name =='cv.glmnet'){
               
-    
+          
     Fit = f_nest_cv_glmnet(as.matrix(non_zero_data), target_col, nfolds = nfolds,
                            penalty_factors= penalty_factors[setdiff(colnames(non_zero_data), c(target_col))] ,
                            debug = F)
@@ -686,11 +686,19 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 }
 
 
-f_add_tf_interactions <- function(data, batch_mode = 'All' ,debug =FALSE){
+f_add_tf_interactions <- function(data, batch_mode = 'All', hic_thres = NA, debug =FALSE){
+
+    if ( grepl('noInteract', batch_mode)) return (data)
+    if (!is.na(hic_thres) ){
+        exclude_enhancer=data$cor < hic_thres & data$type == 'enhancer'
+        data = data[!exclude_enhancer, ]
+    }
+    
                                         #Add the TF interactions
     tf_regions = data
     tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ|rs[0-9]+', tf_regions$feature, invert= TRUE),]
     tf_regions=tf_regions[!duplicated(tf_regions),]
+
     tf_regions[, sample_cols] = apply(tf_regions[, sample_cols], MARGIN = 1, f_get_ecdf_value)
     
     genome_ragnes = makeGRangesFromDataFrame(tf_regions[,c('chr', 'feature_start','feature_end')])
@@ -714,7 +722,7 @@ f_add_tf_interactions <- function(data, batch_mode = 'All' ,debug =FALSE){
         overlap_df$name = paste0(tf_regions[overlap_df$queryHits,'feature_tf'], '-', tf_regions[overlap_df$subjectHits,'feature_tf'] )
         overlap_pairs = overlap_df[overlap_df$name %in% valid_interaction$V1,]
         flog.info('%s out of %s is valiad TF interactions',nrow(overlap_pairs), nrow(matches))
-
+        
         if(batch_mode == 'fakeInteract'){
             overlap_pairs_bak = overlap_pairs
             overlap_pairs=cbind(sample(1:nrow(tf_regions), size = nrow(overlap_pairs)),
@@ -789,7 +797,13 @@ f_add_tf_interactions <- function(data, batch_mode = 'All' ,debug =FALSE){
 
 
     }
-
+    
+    if (grepl('InterOnly', batch_mode)){
+        transcript_data_merge = transcript_data_merge[
+            grep('enhancer|promoter', rownames(transcript_data_merge), invert = T, value = T),
+            ]
+    }
+    
 
     return (transcript_data_merge)
     #data <<- transcript_data_merge
@@ -897,14 +911,22 @@ t_correct_gm12878_bias <-function(){
     f_assert(all(corrected_data[-1, sample_id] == 0), 'correction is wrong')
 }
 
+f_convert_test_samples_to_1kg_samples<-function(input_samples){
+    str_replace(input_samples, '^t_', '')
+}
 
-
-f_add_population_and_gender <- function(obj, add_YRI, select_pop, target_col = 'gene.RNASEQ'){
-    #input_data$population = NULL
+f_add_population_and_gender <- function(obj, add_YRI, select_pop, target_col = 'gene.RNASEQ', debug = FALSE){
+                                        #input_data$population = NULL
+    if (f_judge_debug(debug)){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@4@"]]))##:ess-bp-end:##
+        
+    }
     
     input_data = obj$data
     snyder_samples = obj$snyder_samples
-    input_data[,'population'] = as.character(sample_info[rownames(input_data), c('pop')])
+    
+    input_data[,'population'] = as.character(sample_info[f_convert_test_samples_to_1kg_samples(rownames(input_data)), c('pop')])
     input_data[,'gender'] = as.numeric(sample_info[rownames(input_data), c('gender')] == 'male')
     input_data$population = as.factor(input_data$population)
     input_data$gender = as.factor(input_data$gender)
@@ -944,18 +966,23 @@ f_add_population_and_gender <- function(obj, add_YRI, select_pop, target_col = '
     else{
         flog.warn('Unknown population %s', select_pop)
     }
-
-
-
-    
     
     return (output_data)
 }
 
 
 f_change_category_data <- function(input_data, target_col){
+    
     dummies <- dummyVars(as.formula(f_p('%s ~ .', target_col)), data = input_data)
-    non_zero_data1=as.data.frame(predict(dummies, newdata = input_data))
+    result <- try(
+        non_zero_data1<-as.data.frame(predict(dummies, newdata = input_data)),
+        silent = TRUE
+    )
+    if (class(result) == "try-error"){
+        print(result)
+        non_zero_data1 = input_data
+    }
+    
     non_zero_data1[[target_col]] = input_data[[target_col]]
     return (non_zero_data1)
 }
@@ -996,7 +1023,7 @@ f_get_all.entrezgene <- function(project_dir){
 }
 
 f_get_genotype_matrix <- function(chr_str){
-    gtX <- read.table(f_p('./data/raw_data/wgs/1kg/additive_dir/%s.traw', chr_str), header = T, stringsAsFactors = F)
+    gtX <- read.table(f_p('./data/raw_data/wgs/1kg/additive_dir/assign_hic_id_to_SNP.%s', chr_str), header = T, stringsAsFactors = F)
     library(stringr)
     colnames(gtX) = str_replace(colnames(gtX), '_.*', '')
     rownames(gtX) <- make.names(gtX$SNP, unique = TRUE)
@@ -1004,35 +1031,49 @@ f_get_genotype_matrix <- function(chr_str){
 }
 
 
-f_get_genotype_matrix_for_gene <- function(gene_name, flank_length = 1e6){
+f_get_genotype_matrix_for_gene <- function(gene_name, flank_length = 1e6, debug = F){
 
     #Two hidden parameters: all.entrezgene and gtX because they are too big.
 
-    
+    if (f_judge_debug(debug)){
+    ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+    }
     gene_id = str_replace(gene_name, '[.].*', '')
 
     geneinfo <- all.entrezgene[gene_id,]
     start <- geneinfo$gene_start - 1e6 ### 1Mb lower bound for cis-eQTLS
     end <- geneinfo$gene_end + 1e6 ### 1Mb upper bound for cis-eQTLs
 
-    selected_snps = gtX$POS >= start & gtX$POS <= end
+    selected_snps = gtX$start >= start & gtX$start <= end
     gene_snps = gtX[selected_snps,]
 
     #head10(gene_snps)
 
     #sample_cols = grep('(NA|HG)[0-9]*', colnames(gene_snps), value = TRUE)
-    gene_snps$chr = paste0('chr', gene_snps$CHR)
-    gene_snps$start = gene_snps$POS -1
-    gene_snps$end = gene_snps$POS
+    
+    
     gene_snps$gene = gene_name
     gene_snps$feature = gene_snps$SNP
     gene_snps$feature_tf = gene_snps$feature
-    gene_snps$feature_start = gene_snps$POS
-    gene_snps$feature_end = gene_snps$POS
-    gene_snps$hic_fragment_id = NA
+    gene_snps$feature_start = gene_snps$start
+    gene_snps$feature_end = gene_snps$start
+    gene_snps$hic_fragment_id = gene_snps$hic
     gene_snps$pair = NA
-    gene_snps$cor = 1
+    gene_snps$cor = NA
     gene_snps$type = 'SNP'
+    #Process the SNPs in promoter
+    promoter_hic = subset(gene_enhancer_table, gene == gene_name & type == 'promoter')
+    p_snps=gene_snps$hic_fragment_id %in% promoter_hic$hic_fragment_id
+    gene_snps[p_snps, 'cor'] =1
+
+    #Process the SNPs in enhancer
+    e_hic = f_sort_by_col(subset(gene_enhancer_table, gene == gene_name & type == 'enhancer'), index = 'cor', decr_flag = T)
+    e_hic = e_hic[!duplicated(e_hic$hic_fragment_id),]
+    rownames(e_hic) = e_hic$hic_fragment_id
+    e_snps=gene_snps$hic_fragment_id %in% e_hic$hic_fragment_id
+    gene_snps[e_snps, 'cor'] = e_hic[ gene_snps[e_snps, 'hic_fragment_id']  , 'cor']
+    gene_snps[e_snps, 'pair'] = as.character(e_hic[ gene_snps[e_snps, 'hic_fragment_id']  , 'pair'])
     return (gene_snps)
 }
 
@@ -1042,36 +1083,59 @@ f_merge_two_dfs <- function(df1, df2){
 }
 
 
-f_filter_training_features <- function(final_train_data, batch_name, target_col, debug = FALSE){
+f_filter_training_features <- function(input_data, batch_name, target_col, debug = FALSE){
     if (f_judge_debug(debug)) {
         ##:ess-bp-start::browser@nil:##
         browser(expr=is.null(.ESSBP.[["@5@"]]))##:ess-bp-end:##
     }
 
-
-    if(batch_name == 'SNP' | batch_name == 'SNPinTF'){
+    train_samples = grep('^t_', rownames(input_data), invert = T, value = T)
+    train_data = input_data[ train_samples, ]
+    
+    test_data = input_data[ grep('^t_', rownames(input_data)), ]
+    rownames(test_data)
+    
+    
+    if(batch_name == 'SNP' | grepl( 'SNPinTF', batch_name)){
         flog.info('batch mode:%s', batch_name)
-        output_data = final_train_data[, grep('(SNP|gene.RNASEQ)', colnames(final_train_data))]
-    }else if(batch_name == 'TF' | batch_name == 'noInteract' | batch_name == 'fakeInteract'){
-        flog.info('batch mode:%s', batch_name)
-        output_data = final_train_data[, grep('^SNP', colnames(final_train_data), invert = T)]
+        output_data = input_data[, grep('(SNP|gene.RNASEQ)', colnames(input_data))]
     }else if(batch_name == 'TFShuffle'){
-        interaction_cols = grep('P_E|TF.overlap', colnames(final_train_data), value = T)
-        output_data = final_train_data[, grep('^SNP', colnames(final_train_data), invert = T)]
-        output_data[, interaction_cols] = final_train_data[sample(x = 1:nrow(final_train_data)), interaction_cols]
+        interaction_cols = grep('P_E|TF.overlap', colnames(input_data), value = T)
+        output_data = input_data[, grep('^SNP', colnames(input_data), invert = T)]
+        output_data[train_samples, interaction_cols] = input_data[sample(x = train_samples, size = length(train_samples)), interaction_cols]
+    }else if( batch_name %in% c('TF', 'noInteract', 'fakeInteract', 'TFfilterMinor')){
+        flog.info('batch mode:%s', batch_name)
+        output_data = input_data[, grep('^SNP', colnames(input_data), invert = T)]
     }else if (batch_name == 'AlltfShuffle'){
-        
-        snp_data = final_train_data[, grep('rs[0-9]+|esv[0-9]+', colnames(final_train_data), value = T)]
-        tf_data = final_train_data[, grep('rs[0-9]+|esv[0-9]+', colnames(final_train_data), value = T, invert = T)]
-        shuffled_tf_data = tf_data[sample(x = 1:nrow(final_train_data), size = nrow(final_train_data)),]
+        snp_data = input_data[, grep('rs[0-9]+|esv[0-9]+', colnames(input_data), value = T)]
+        tf_data = input_data[, grep('rs[0-9]+|esv[0-9]+', colnames(input_data), value = T, invert = T)]
+        shuffled_tf_data = tf_data
+        shuffled_tf_data[train_samples, ] = tf_data[sample(x = train_samples, size = length(train_samples)),]
         output_data = cbind(snp_data, shuffled_tf_data)
-        
+        output_data[[target_col]] = input_data[[target_col]]
+    }else if (batch_name == 'AllsnpShuffle'){
+        snp_data = input_data[, grep('rs[0-9]+|esv[0-9]+', colnames(input_data), value = T)]
+        tf_data = input_data[, grep('rs[0-9]+|esv[0-9]+', colnames(input_data), value = T, invert = T)]
+        shuffled_snp_data = snp_data
+        shuffled_snp_data[train_samples, ] = snp_data[sample(x = train_samples, size = length(train_samples)),]        
+        output_data = cbind(shuffled_snp_data, tf_data)
     }else{
         flog.info('Error mode %s', batch_name)
-        output_data = final_train_data
+        output_data = input_data
     }
-    #output_data$population = final_train_data$population
-    #output_data$population = final_train_data$gender
+    #output_data$population = input_data$population
+    #output_data$population = f_ainal_train_data$gender
+    if (grepl('filterMinor', batch_name)){
+        output_data[abs(output_data)<0.0001] = 0
+    }
+      
+    if (grepl('topTF', batch_name)){
+        weak_TFs = c('BCL11A', 'SRF', 'STAT5A', 'USF.1', 'BCLAF1',
+                     'CEBPB', 'NF.YA', 'P300', 'RXRA', 'BRCA1', 'RFX5', 'STAT1', 'STAT3', 'ZNF274', 'ZZZ3')
+        filter_pattern = paste0(weak_TFs, collapse='|')
+        output_data = output_data[,grep(filter_pattern, colnames(output_data), invert = T, value = TRUE)]
+    }
+
 
     f_input_stats(output_data, batch_name)
     
@@ -1115,6 +1179,7 @@ if (getOption('run.main', default=TRUE)) {
 
 
 f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty){
+    #cor_vector: hic correlation/interaction score.
     input_data = input_data_raw[, colnames(input_data_raw) != 'gene.RNASEQ']
     if ( (!'cor' %in% colnames(cor_vector)) | add_penalty == FALSE) {
         penalty_factors = rep(1, ncol(input_data))
@@ -1123,6 +1188,8 @@ f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty){
     }
     
     real_max_cor = max(cor_vector$cor[cor_vector$cor != 1])
+    real_min_cor = min(cor_vector$cor[cor_vector$cor != 0])
+    cor_vector$cor[cor_vector$cor == 0] = real_min_cor/2
     penalty_factors = rep(1-real_max_cor, times = ncol(input_data))
     names(penalty_factors) = colnames(input_data)
     intersect_cols = intersect(rownames(subset(cor_vector, cor != 1)), names(penalty_factors))
@@ -1136,12 +1203,12 @@ f_get_train_performance <- function(mod, dat, outcome){
         test_perf = mod$train_perf[1,'Rsquared']
     }else{
         test_preds = predict(mod, newdata = dat)
-        test_perf <- R2(test_preds, dat[, outcome])
+        test_perf <- R2(test_preds, dat[, outcome], formula = 'corr')
     }
     return (test_perf)
 }
     
-f_parse_key_features_report_performance <- function(fit, transcript_data, transcript_id, results_dir, gene, debug  = FALSE){
+f_parse_key_features_report_performance <- function(fit, transcript_data, transcript_id, results_dir, gene, cor_nums, debug  = FALSE){
     ##Collect features.
     if (f_judge_debug(debug)){
     ##:ess-bp-start::browser@nil:##
@@ -1149,7 +1216,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
     }
     train_perf = f_get_train_performance(fit, final_train_data, 'gene.RNASEQ')
     output_file = f_p('%s/%s.enet',  results_dir, transcript_id)
-    prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' , alpha=0, lambda=0, stringsAsFactors = F)
+    prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' , alpha=0, lambda=0, CEU =0, CHB =0, JPT=0, YRI=0, stringsAsFactors = F)
     collected_features = data.frame()
 
     key_features = str_replace_all(names(fit$key_features),'`','')                                   
@@ -1164,15 +1231,20 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
     features_df$score = fit$key_features
     
     collected_features = rbind(collected_features, features_df)
+    print(subset(collected_features, score != 0))
     write.table(collected_features, file = gzfile(f_p('%s.features.gz', output_file)), sep = '\t', quote = FALSE, row.names =FALSE)
 
 
+    ##Predction part####
+    
+    
+    
     ##Performance part    
     max_performance = fit$max_performance
     RsquaredSD =fit$results[rownames(fit$bestTune), 'RsquaredSD' ]
     print(fit$results)
     cat("\n", 'train_perf', train_perf ,'performance', max_performance, 'SD', RsquaredSD, 'Number of features:', nrow(features_df) )
-    prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(train_perf), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features), fit$bestTune[1,1], fit$bestTune[1,2]))
+    prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(train_perf), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features), fit$bestTune[1,1], fit$bestTune[1,2], cor_nums))
     #print(prediction_performance)
     
     flog.info('Output file: %s', output_file)
@@ -1189,6 +1261,7 @@ f_judge_debug<-function(debug_flag){
 f_input_stats <- function(input_data, batch_mode){
     library(stringr)
     cat('Input stats', batch_mode, '\n')
+    print ('TF means: TF.overlap')
     print(table(str_replace(colnames(input_data), '[.].*', '')))
 }
 
@@ -1200,3 +1273,54 @@ f_input_stats <- function(input_data, batch_mode){
 #data=f_filter_training_features(final_train_data_bak, 'TF', target_col)
 #data=f_filter_training_features(final_train_data_bak, 'noInteract', target_col)
 #data=f_filter_training_features(final_train_data_bak, 'fakeInteract', target_col)
+f_plot_cor_heatmap <- function(final_train_data, output_file){
+    library(RColorBrewer)
+    
+    feature_class=str_replace(colnames(final_train_data), '[.].*', '')        
+    cor_mat = cor(final_train_data)
+    class_color=brewer.pal(length(unique(feature_class)),"RdGy")[factor(feature_class)]
+    tiff(filename = output_file, width = 1000, height = 1000)
+    heatmap.2(cor_mat, Rowv = NULL, Colv = NULL, RowSideColors = class_color, ColSideColors = class_color, trace = 'none')
+    dev.off()
+    
+}
+
+
+f_test_in_other_pop <- function(fit, final_data, test_samples, debug = F){
+    if (length(test_samples)>1){
+        if (f_judge_debug(debug)){
+            ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+        }
+
+        sum(fit$key_features != 0)
+        head(fit$key_features)
+        
+        test_data = scale(as.matrix(final_data[test_samples, grep('Intercept', names(fit$key_features), value =T, invert = T) ]))
+        
+        pred_value = glmnet::predict.cv.glmnet(fit$finalModel, newx = test_data )
+        train_pred_value = predict(fit$finalModel, newx = as.matrix(final_data[train_samples, grep('Intercept', names(fit$key_features), value =T, invert = T) ]), type = 'response')
+        flog.info( 'Range of predected value %s %s', min(pred_value), max(pred_value) )
+        train_value = final_data[train_samples, 'gene.RNASEQ']
+        flog.info( 'Range of train value %s %s', min(train_value), max(train_value) )
+        
+        class(fit$finalModel)
+        pred_cor=cor(pred_value, final_data[test_samples, target_col], method = 'spearman')
+        train_cor=cor(train_pred_value, final_data[train_samples, target_col], method = 'spearman')
+        range(final_data[train_samples,target_col])
+
+        pred_value = as.data.frame(pred_value)
+        pred_value$population = as.character(sample_info[f_convert_test_samples_to_1kg_samples(rownames(pred_value)), c('pop')])
+        pred_value$obs = as.vector(scale( final_data[test_samples, target_col]))
+        colnames(pred_value) = c('pred', 'population', 'obs')
+        
+        ggplot(pred_value, aes(pred, obs)) + geom_point() + facet_wrap(. ~ population, nrow =2)
+        
+        #cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = R2(pred, obs, formula =  "traditional", na.rm = FALSE)) %>% as.data.frame
+        cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = R2(pred, obs, formula = 'corr', na.rm = FALSE)) %>% as.data.frame
+        rownames(cor_stats)=cor_stats$population
+        return (cor_stats[c('CEU', 'CHB', 'JPT', 'YRI'),'pop_cor'])
+    }else{
+        return (rep(NA, times=4))
+    }
+}
