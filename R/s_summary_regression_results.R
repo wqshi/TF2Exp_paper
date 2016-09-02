@@ -1,6 +1,17 @@
-
 #This script combine the results from s_regression_for_one_gene.R
 #Sync the data from clustdell.
+library("optparse")
+option_list = list(
+    make_option(c("--batch_name"),      type="character", default=NULL, help="like 445samples_sailfish, 445samples_rareVar", metavar="character"),
+    make_option(c("--collection"),      type="character", default='addPenalty', help="e.g. addPenalty, snyder.norm", metavar="character"),
+    make_option(c("--chr_batch"),      type="character", default='1chr', help="1chr for chr22, 3chrs for (2, 10, 15)", metavar="character")
+);
+
+opt_parser = OptionParser(option_list=option_list);
+opt = parse_args(opt_parser);
+str(opt)
+
+
 library(reshape2)
 library(futile.logger)
 library(dplyr)
@@ -10,18 +21,9 @@ source('~/R/s_function.R', chdir = TRUE)
 suppressMessages(source('s_gene_regression_fun.R'))
 source('s_summary_fun.R')
 library(stringr)
-library("optparse")
+
 source('~/R/s_ggplot2_theme.R', chdir = TRUE)
 options(dplyr.width = Inf)
-
-option_list = list(
-    make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
-    make_option(c("--collection"),      type="character", default='addPenalty', help="The parameter based name", metavar="character"),
-    make_option(c("--chr_batch"),      type="character", default='1chr', help="1chr for chr22, 3chr for (2, 10, 22)", metavar="character")
-);
-
-opt_parser = OptionParser(option_list=option_list);
-opt = parse_args(opt_parser);
 
 if (is.null(opt$batch_name)){
     #batch_name = '54samples_evalue'
@@ -30,18 +32,22 @@ if (is.null(opt$batch_name)){
     #batch_name = '462samples_quantile'
     #batch_name = '462samples_quantile_rmNA'
     #batch_name = '462samples_log_quantile'
+    #loc_batch_name = '445samples_rareVar'
     loc_batch_name = '445samples_sailfish'
+    #loc_batch_name = '445samples_snpOnly'
     ##chr_str = 'chr22'
+    chr_num_list = c(15, 10, 2)
     chr_num_list = c(22)
-    collecion_name = 'snyder.norm'
+    #collection_name = 'non_pop'
+    collection_name = 'tradR2'
 }else{
     loc_batch_name = opt$batch_name
     if (opt$chr == '1chr'){
         chr_num_list = c(22)
     }else{
-        chr_num_list = c(22, 10, 2)
+        chr_num_list = c(22, 10, 15)
     }
-    colletion_name = opt$collection
+    collection_name = opt$collection
 }
 
 modes_list = list()
@@ -105,12 +111,13 @@ All = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445sample
 SNPinTF = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNPinTF_other.info.normCor',
 SNP = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.SNP_other.info.normCor',
 TF = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.TF_other.info.normCor'
-,
+#,
 #AllrmHic='rm.histone_model.cv.glmnet_rm.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.All_other.info.normCor',
 #AllnoInteract = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.AllnoInteract_other.info.normCor',
 ##InterOnlySNPinTF='rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.InterOnlySNPinTF_other.info.normCor',
 #noInteract ='rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.noInteract_other.info.normCor',
-AlltfShuffle = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.AlltfShuffle_other.info.normCor'
+#TFfilterMinor ='rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.TFfilterMinor_other.info.normCor',
+#AlltfShuffle = 'rm.histone_model.cv.glmnet_add.penalty_population.all_new.batch.445samples.snyder.original_batch.mode.AlltfShuffle_other.info.normCor'
 )
 
 modes_list$snpOnly=modes_list$addPenalty[c('All', 'TF', 'SNP')]
@@ -119,10 +126,11 @@ modes_list$snyder.norm = f_create_new_mode_list(modes_list$addPenalty, 'snyder.o
 modes_list$maxit = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'maxit1M')
 modes_list$lm = f_create_new_mode_list(modes_list$addPenalty, 'normCor', 'lm')
 
-#loc_batch_name = '445samples_snpOnly'
-collection_name='snyder.norm'
-#mode_list = modes_list[[collection_name]][c(1,3)]
-mode_list = modes_list[[collection_name]]#[c('All', 'TF', 'SNP')]
+modes_list$non_pop = f_create_new_mode_list(modes_list$snyder.norm, 'population.all', 'population.None')
+modes_list$old2TFinter = f_create_new_mode_list(modes_list$non_pop, 'normCor', 'old2TFinter')
+modes_list$tradR2 = f_create_new_mode_list(modes_list$non_pop, 'normCor', 'tradR2')
+mode_list = modes_list[[collection_name]]#[c('TF')]
+
 
 
 #' #Modes used in the analysis
@@ -134,35 +142,37 @@ f_built_file_name_from_paras('s_summary_regression_results', f_p('%s_%s_%schrs',
 
 
 
+
 #' #Collect the performance data.
 sample_performance_merge = f_collect_performance_in_multiple_chrs(loc_batch_name, mode_list, chr_num_list)
 sample_performance_merge$performance = sample_performance_merge$rsq
 results_dir = f_p('./data/%s/rnaseq/results/', loc_batch_name)
 
-
+table((sample_performance_merge %>% filter(mode == 'TF'))$chr)
+table((sample_performance_merge %>% filter(mode == 'AlltfShuffle'))$chr)
 
 #' #Thresholds
-table(sample_performance_merge$mode)
+table(sample_performance_merge$mode, sample_performance_merge$chr)
 #threshold = quantile( subset(sample_performance_merge, mode == 'random')$performance , probs = 0.99 )
 threshold = 0.05
 
 
 
 #' #Stats For the robust genes
-sample_performance_merge %>% filter( performance > 0.8 * train_performance, performance > 0.05 ) %>% group_by(mode) %>%
+robust_genes <- sample_performance_merge %>% filter( performance > 0.8 * train_performance, performance > 0.05 ) %>% group_by(mode) %>%
     dplyr::summarise(good_predictions = sum(performance > threshold),
                                mean_performance = mean(performance),
                                mean_SD = mean(SD),
                                feature_num = mean(selected_features),
                      max_feature = max(selected_features))
 
-head(sample_performance_merge)
+#head(sample_performance_merge)
 
 table(sample_performance_merge$mode)
-
+table(sample_performance_merge$chr)
 
 #' #Stats For the intersect genes
-gene_count = table(sample_performance_merge$gene) == length(mode_list)
+gene_count = table(sample_performance_merge$gene) == length(unique(sample_performance_merge$mode))
 intersect_genes = names(gene_count)[gene_count]
 
 intersect_stats <- sample_performance_merge %>% filter(performance > threshold, gene %in% intersect_genes) %>% group_by(mode) %>%
@@ -173,7 +183,17 @@ intersect_stats <- sample_performance_merge %>% filter(performance > threshold, 
                                mean_SD = mean(SD),
                                mean_input_feature = mean(num_feature), 
                                mean_selected_features = mean(selected_features),
-                               max_feature = max(selected_features))
+                               max_feature = max(selected_features),
+                               CHB_count = sum(!is.na(CHB)), CHB_mean = mean(CHB, na.rm = T),
+                               JPT_count = sum(!is.na(JPT)), JPT_mean = mean(JPT, na.rm = T)
+                     )
+
+colnames(sample_performance_merge)
+table(sample_performance_merge$mode)
+sample_performance_merge %>% filter(performance > threshold, mode == 'TF' ,gene %in% intersect_genes) %>% select(gene, performance, CEU, CHB, JPT) 
+
+
+
 print(intersect_stats)
 #write.table(format(as.data.frame(intersect_stats), digits = 3), f_p('%s/basic_stats.txt', results_dir), quote = FALSE, sep = '\t', row.names = FALSE)
 
@@ -202,10 +222,6 @@ if ('AllrmHic' %in% sample_performance_merge$mode){
 #sample_performance_merge %>% filter(gene == as.data.frame(ensemble_mode)[2,'gene'])
 
 
-
-
-print(intersect_stats)
-
 #' ##Plots to compare the performance
 f_venn_plot_overlap(sample_performance_merge, intersect_genes, threshold)
 
@@ -225,12 +241,11 @@ group_B  = 'All'
 thres = 0.005
 
 
-
-
-
-f_compare_improvment_for_two_groups('SNP', "All", good_performance)
+f_compare_improvment_for_two_groups('SNP', "All", good_performance, thres = 0.01)
 f_compare_improvment_for_two_groups('SNP', "TF", good_performance)
-f_compare_improvment_for_two_groups('SNP', "SNPinTF", good_performance)
+f_compare_improvment_for_two_groups('SNP', "SNPinTF", good_performance, thres = 0.01)
+f_compare_improvment_for_two_groups('SNPinTF', "SNP", good_performance, thres = 0.01)
+
 f_compare_improvment_for_two_groups('SNPinTF', "TF", good_performance)
 
 
@@ -253,6 +268,7 @@ f_plot_performance_and_stats_test(good_performance, 'TF', 'noInteract')
 #f_plot_performance_and_stats_test(good_performance, 'TF', 'fakeInteract')
 #f_plot_performance_and_stats_test(good_performance, 'noInteract', 'fakeInteract') #Not significant
 
+stop() 
 
 #' #Test performance drop against model variance
 try(f_test_performance_drop_with_ml_variance(sample_performance_merge, 'SNP', 'SNPinTF'))
@@ -265,5 +281,33 @@ ggplot(subset(sample_performance_merge, performance > 0), aes(x = performance , 
 source('s_GO_analysis_predictions.R')
 #thres is working.
 f_performance_go_analysis(sample_performance_merge, 'TF', thres = 0.2) #check this after the whole genome analysis.
+
+
+
+##Test the gene mean and var against the performance
+batch_expression = read.table(f_p('./data/%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX', batch_name), header = TRUE)
+rownames(batch_expression) = batch_expression$gene
+batch_expression$gene = NULL
+batch_expression_log = log(batch_expression + 1)
+expression_array=data.frame( gene = rownames(batch_expression),  mean = rowMeans(batch_expression_log, na.rm = T), var = apply(batch_expression_log, 1, var, na.rm = T))
+
+rownames(expression_array) = expression_array$gene
+
+head10(expression_array)
+
+sample_performance_merge$mean_exp = expression_array[rownames(sample_performance_merge),'mean']
+sample_performance_merge$var = expression_array[rownames(sample_performance_merge),'var']
+
+head(sample_performance_merge)
+hist((sample_performance_merge$mean_exp))
+ggplot(sample_performance_merge, aes(performance, mean_exp)) + geom_point()
+ggplot(sample_performance_merge, aes(performance, var)) + geom_point()
+
+
+
+f_debug <- function(){
+    source('s_summary_fun.R')
+    sample_performance_merge = f_collect_performance_in_multiple_chrs(loc_batch_name, c(mode_list[1]), chr_num_list)
+}
 
 
