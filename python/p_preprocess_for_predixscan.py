@@ -1,5 +1,4 @@
 
-
 from p_project_metadata import *
 kg_dir = '%s/data/raw_data/wgs/1kg/' % project_dir
 import pandas as pd
@@ -19,7 +18,7 @@ kg_dir = '%s/data/raw_data/wgs/1kg/' % project_dir
 
 ##Filter the vcf SNPs####
 
-chr_list=[22]
+chr_list=['22', '21', 'X']
 
 chr_vcf_file = '%s/ALL.head.vcf.gz' % kg_dir
 chr_num = 'a'
@@ -41,14 +40,17 @@ for chr_num in chr_list:
     #bcf_subset_cmd = "%s/bcftools view -c1 -Ov --samples-file %s %s | %s/bcftools filter -e'MAF<0.05' - | grep -v -i 'MULTI_ALLELIC\|ALU' | bgzip > %s " % (bcftools_dir, sample_file, chr_vcf_file, bcftools_dir , sample_vcf_file)
 
     #Use the MAF from global population, other wise change of samples would affect the SNPs selected.
-    bcf_subset_cmd = "%s/bcftools filter -e'MAF<0.05' %s | %s/bcftools view -c1 -Ov --samples-file %s - | grep -v -i 'MULTI_ALLELIC\|ALU' | bgzip > %s " % (bcftools_dir, chr_vcf_file, bcftools_dir, sample_file,  sample_vcf_file)
+    if chr_num == 'Y':
+        bcf_subset_cmd = "%s/bcftools filter -e'MAF<0.05' %s | %s/bcftools view -c1 --force-samples  -Ov --samples-file %s - | grep -v -i 'MULTI_ALLELIC\|ALU' | bgzip > %s " % (bcftools_dir, chr_vcf_file, bcftools_dir, sample_file,  sample_vcf_file)
+    else:
+        bcf_subset_cmd = "%s/bcftools filter -e'MAF<0.05' %s | %s/bcftools view -c1 -Ov --samples-file %s - | grep -v -i 'MULTI_ALLELIC\|ALU' | bgzip > %s " % (bcftools_dir, chr_vcf_file, bcftools_dir, sample_file,  sample_vcf_file)
 
     my.f_shell_cmd(bcf_subset_cmd)
 
     plink_cmd = '%s/plink --vcf %s --recode A-transpose  --out %s/chr%s --noweb' % (kg_dir, sample_vcf_file, additive_dir, chr_num )
     my.f_shell_cmd(plink_cmd)
 
-    format_cmd = "awk '{print \"chr\"$0\"\t\"$4-1}' %s/chr%s.traw | sed '1s/POS/end/' | sed '1s/-1/start/' | sed '1s/CHR/chr/' > %s/chr%s.bed" % (additive_dir, chr_num, additive_dir, chr_num)
+    format_cmd = "awk '{print \"chr\"$0\"\t\"$4-1}' %s/chr%s.traw | sed '1s/POS/end/' | sed '1s/-1/start/' | sed '1s/CHR/chr/'  | sed '1s/chrchr/chr/g'> %s/chr%s.bed" % (additive_dir, chr_num, additive_dir, chr_num)
     print(format_cmd)
     my.f_shell_cmd(format_cmd)
 
