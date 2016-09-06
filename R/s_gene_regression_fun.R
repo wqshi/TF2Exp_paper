@@ -1,5 +1,5 @@
 library(randomForest, quietly = TRUE)
-library(mclust, quietly = TRUE)
+#library(mclust, quietly = TRUE)
 library(caret, quietly = TRUE)
 source('~/R/s_function.R', chdir = TRUE)
 library(GenomicRanges)
@@ -23,11 +23,24 @@ f_get_server_name <- function(){
     return (Sys.info()["nodename"])
 }
 
+f_ASSERT<-function(condition,message){
+  #Description: self defined warning function for debug.
+  #input:condition is the cretiria of the warning, if False, show the message and the location.
+  #output:
+  #By wenqiang
+  #Date: 2013-02-05
+  as.character(match.call()[[1]]);
+  if (condition == FALSE)
+  {
+    print(sprintf('The assertion failed:%s, at %s',message, as.character(match.call()[[1]])));
+    stopifnot(condition)
+  }
+}
 
 #my_train = final_train_data
 #target_col = 'gene.RNASEQ'
 #learner_name = 'rf'
-f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid, output_figure_path = NULL, quite=FALSE, penalty_factors = NULL, nfolds=10, rm_high_cor = FALSE)
+f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid, output_figure_path = NULL, quite=FALSE, penalty_factors = NULL, nfolds=10, rm_high_cor = FALSE, keepZero = TRUE)
 {
     
   #cl <- makeCluster(3)
@@ -36,15 +49,18 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
     library(caret, quietly = TRUE)
     #set.seed(3456)
     cat('learner name:', learner_name, '\n')
-    dim(my_train)
-    head(my_train[,1:10])
-    zero_cols = nearZeroVar(my_train, freqCut = 95/5)
-    #zero_cols = NULL
+        
+    if (keepZero == FALSE){
+        zero_cols = nearZeroVar(my_train, freqCut = 95/5)
+    }else{
+        zero_cols = nearZeroVar(my_train, freqCut = 399/1, uniqueCut = 200/nrow(my_train))         
+    }
+    
     if (length(zero_cols) == 0)
         non_zero_data = my_train
     else
         non_zero_data = my_train[, -zero_cols]
-
+    
     flog.info('Filter %s near zero cols', length(zero_cols))
     if (!target_col %in% colnames(non_zero_data)){
         non_zero_data[target_col] = my_train[target_col]
@@ -194,8 +210,7 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
 
 
   }else if(learner_name =='cv.glmnet'){
-              
-          
+                  
     Fit = f_nest_cv_glmnet(as.matrix(non_zero_data), target_col, nfolds = nfolds,
                            penalty_factors= penalty_factors[setdiff(colnames(non_zero_data), c(target_col))] ,
                            debug = F)
@@ -688,7 +703,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 
 f_add_tf_interactions <- function(data, batch_mode = 'All', hic_thres = NA, debug =FALSE){
 
-    if ( grepl('noInteract', batch_mode)) return (data)
+    if ( grepl('noInteract|^SNP$|^SNPinTF$', batch_mode)) return (data)
     if (!is.na(hic_thres) ){
         exclude_enhancer=data$cor < hic_thres & data$type == 'enhancer'
         data = data[!exclude_enhancer, ]
@@ -747,6 +762,7 @@ f_add_tf_interactions <- function(data, batch_mode = 'All', hic_thres = NA, debu
             
         }else{
             cat('Empty overlaps','\n')
+            transcript_data_merge = data
         }
         
     }else{
@@ -908,7 +924,7 @@ t_correct_gm12878_bias <-function(){
     
     corrected_data = f_correct_gm12878_bias(input_data$data, sample_id)
 
-    f_assert(all(corrected_data[-1, sample_id] == 0), 'correction is wrong')
+    f_ASSERT(all(corrected_data[-1, sample_id] == 0), 'correction is wrong')
 }
 
 f_convert_test_samples_to_1kg_samples<-function(input_samples){
@@ -992,18 +1008,18 @@ f_change_category_data <- function(input_data, target_col){
     obj = f_get_test_data()
     obj$data = as.data.frame(t(obj$data))
     snyder_data = f_add_population_and_gender(obj, add_YRI = TRUE, select_pop = '54snyder')
-    f_assert(nrow(snyder_data)== 53, 'Test sub-population')
+    f_ASSERT(nrow(snyder_data)== 53, 'Test sub-population')
     dim(snyder_data)
     
 
     YRI29_data = f_add_population_and_gender(obj, add_YRI = TRUE, select_pop = '29YRI')
-    f_assert(nrow(YRI29_data)== 29, 'Test sub-population')
+    f_ASSERT(nrow(YRI29_data)== 29, 'Test sub-population')
 
 
     snyder29_data = f_add_population_and_gender(obj, add_YRI = TRUE, select_pop = '29snyder')
-    f_assert(nrow(snyder29_data)== 29, 'Test sub-population')
+    f_ASSERT(nrow(snyder29_data)== 29, 'Test sub-population')
     
-    f_assert( length(intersect(rownames(YRI29_data), rownames(snyder_data) )) == 0, 'YRI selection' )
+    f_ASSERT( length(intersect(rownames(YRI29_data), rownames(snyder_data) )) == 0, 'YRI selection' )
     
 }
 
@@ -1103,7 +1119,7 @@ f_filter_training_features <- function(input_data, batch_name, target_col, debug
         interaction_cols = grep('P_E|TF.overlap', colnames(input_data), value = T)
         output_data = input_data[, grep('^SNP', colnames(input_data), invert = T)]
         output_data[train_samples, interaction_cols] = input_data[sample(x = train_samples, size = length(train_samples)), interaction_cols]
-    }else if( batch_name %in% c('TF', 'noInteract', 'fakeInteract', 'TFfilterMinor')){
+    }else if( batch_name %in% c('TF', 'noInteract', 'fakeInteract', 'TFfilterMinor', 'TFsnpMatch')){
         flog.info('batch mode:%s', batch_name)
         output_data = input_data[, grep('^SNP', colnames(input_data), invert = T)]
     }else if (batch_name == 'AlltfShuffle'){
@@ -1181,12 +1197,12 @@ if (getOption('run.main', default=TRUE)) {
 f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty){
     #cor_vector: hic correlation/interaction score.
     input_data = input_data_raw[, colnames(input_data_raw) != 'gene.RNASEQ']
-    if ( (!'cor' %in% colnames(cor_vector)) | add_penalty == FALSE) {
+    if ( (!'cor' %in% colnames(cor_vector)) | add_penalty == FALSE | all(cor_vector$cor == 1 | cor_vector$cor == 0 ) ) {
         penalty_factors = rep(1, ncol(input_data))
         names(penalty_factors) = colnames(input_data)
         return ( penalty_factors )
     }
-    
+        
     real_max_cor = max(cor_vector$cor[cor_vector$cor != 1])
     real_min_cor = min(cor_vector$cor[cor_vector$cor != 0])
     cor_vector$cor[cor_vector$cor == 0] = real_min_cor/2
@@ -1203,7 +1219,7 @@ f_get_train_performance <- function(mod, dat, outcome){
         test_perf = mod$train_perf[1,'Rsquared']
     }else{
         test_preds = predict(mod, newdata = dat)
-        test_perf <- R2(test_preds, dat[, outcome], formula = 'corr')
+        test_perf <- f_tradition_rquare2(test_preds, dat[, outcome], R2_method)
     }
     return (test_perf)
 }
@@ -1285,19 +1301,30 @@ f_plot_cor_heatmap <- function(final_train_data, output_file){
     
 }
 
+f_my_cor<-function(pred, obs){
+    if(sd(pred) == 0 | sd(obs) == 0){
+        cor_val = 0
+    }else{
+        cor_val = cor(pred, obs)
+    }
 
-f_test_in_other_pop <- function(fit, final_data, test_samples, debug = F){
-    if (length(test_samples)>1){
+    return (cor_val)
+}
+
+
+f_test_in_other_pop <- function(fit, final_data, test_samples, batch_name, debug = F){
+    if (length(test_samples)>1 & !grepl('snpOnly|rareVar', batch_name) ){
         if (f_judge_debug(debug)){
             ##:ess-bp-start::browser@nil:##
 browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         }
+        
 
         sum(fit$key_features != 0)
         head(fit$key_features)
         
         test_data = scale(as.matrix(final_data[test_samples, grep('Intercept', names(fit$key_features), value =T, invert = T) ]))
-        
+        test_data[is.na(test_data)] = 0
         pred_value = glmnet::predict.cv.glmnet(fit$finalModel, newx = test_data )
         train_pred_value = predict(fit$finalModel, newx = as.matrix(final_data[train_samples, grep('Intercept', names(fit$key_features), value =T, invert = T) ]), type = 'response')
         flog.info( 'Range of predected value %s %s', min(pred_value), max(pred_value) )
@@ -1317,7 +1344,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         ggplot(pred_value, aes(pred, obs)) + geom_point() + facet_wrap(. ~ population, nrow =2)
         
         #cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = R2(pred, obs, formula =  "traditional", na.rm = FALSE)) %>% as.data.frame
-        cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = R2(pred, obs, formula = 'corr', na.rm = FALSE)) %>% as.data.frame
+        cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = f_my_cor(pred, obs)) %>% as.data.frame
         rownames(cor_stats)=cor_stats$population
         return (cor_stats[c('CEU', 'CHB', 'JPT', 'YRI'),'pop_cor'])
     }else{
