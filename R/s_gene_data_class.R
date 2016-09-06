@@ -3,6 +3,7 @@ library(methods)
 source('~/R/s_function.R', chdir = T)
 library(futile.logger)
 source('s_project_funcs.R')
+library(stringr)
 
 
 GENE <- setRefClass("GENE",
@@ -12,16 +13,130 @@ GENE <- setRefClass("GENE",
                                    chr_str = 'character'),
                      methods = list(
 
-                         get_samples = function(){
-                             sample_cols = sort(grep('(NA|HG)[0-9]+', colnames(data),value = T))
+                         get_samples = function(input_data = NULL, invert = FALSE){
+                             if (is.null(input_data)){
+                                 sample_cols = sort(grep('(NA|HG)[0-9]+', colnames(data),value = T, invert = invert))
+                             }else{
+                                 sample_cols = sort(grep('(NA|HG)[0-9]+', colnames(input_data),value = T, invert = invert))
+                             }
                              return (sample_cols)
                          },
+
+                         subset_features_to_snp_contain_region = function(batch_mode, debug = F){
+                             #Subset the features only to the SNP regions
+                             if (f_judge_debug(debug)){
+                                       ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
+                                 
+                             }
+                             
+                             if (batch_mode != 'TFsnpMatch') return (NULL)
+                             
+                             other_batch_name = '445samples_snpOnly'
+                             snp_gene <- GENE(data = data.frame(), gene_name = gene_name, chr_str = chr_str, batch_name = other_batch_name)
+                             snp_gene$read_data()
+                             
+                             snp_gene$set_feature_id()
+                             set_feature_id()
+                                                         
+                             snp_tf_features = grep('enhancer|promoter', rownames(snp_gene$data), value =T)
+                             loc_tf_features = grep('enhancer|promoter', rownames(data), value = T)
+
+                             rare_tf_features=setdiff(loc_tf_features, snp_tf_features)
+                             f_ASSERT( length(setdiff(snp_tf_features, loc_tf_features)) == 0, 'SNP TF features are bigger than All TF features' )
+                             flog.info('Remove rare features: %s out of %s', length(rare_tf_features), length(loc_tf_features))
+                             
+                             selected_data = data[! (rownames(data) %in% rare_tf_features),]
+                             data <<- selected_data 
+                             
+                         },
+                         set_feature_id = function(){
+                             index = paste(data$type, data$feature, data$hic_fragment_id, data$pair, data$feature_start, data$feature_end ,sep=':')
+                             duplicated_index = index[duplicated(index)]
+                             merge_cols = c('feature','feature_start', 'feature_end', 'hic_fragment_id', 'type', 'pair')
+                             
+                             f_ASSERT( all(grepl('SNP', duplicated_index)), 'Duplicated snps error')
+                             flog.info('Number of duplicated SNPs %s', length(duplicated_index))
+                             data <<- data[!duplicated(data[,merge_cols]),] #Remove the SNPs with same rs names. Potential problem
+                             rownames(data) <<- paste(data$type, data$feature, data$hic_fragment_id, data$pair, data$feature_start, data$feature_end ,sep=':')
+                         },
+                         hic_within_1Mb = function(){
+                                                          
+                             all.entrezgene = read.table('./data/raw_data/rnaseq/all.ensemble.genes.gene_start',sep='\t', header = TRUE, quote = "")
+                             row.names(all.entrezgene) = all.entrezgene$ensembl_transcript_id
+                             loc_gene_name = str_replace(gene_name, '[.][0-9]+', '')
+                             gene_start = all.entrezgene[loc_gene_name, 'transcript_start'] - 1000000
+                             gene_end = all.entrezgene[loc_gene_name, 'transcript_end'] + 1000000
+
+                             
+                             hic_ids = as.numeric(data$hic_fragment_id)
+
+                             hic_ids[is.na(hic_ids)] = all.entrezgene[loc_gene_name, 'transcript_start'] #For the SNPs only overlap with hic-id.
+                                      
+                             subset_data = data[ hic_ids > gene_start & hic_ids < gene_end,]
+                             flog.info('Filtered %s features out of 1Mb regions', nrow(data) - nrow(subset_data))
+                             data <<- subset_data
+                         },
+                         read_test_data = function(test_batch, debug = FALSE) {
+
+                             output_dir = f_p('./data/%s/', test_batch)
+                             expression_file = f_p('%s/rnaseq/%s/%s.txt', output_dir, chr_str, test_gene_name())                             
+
+                             if ( !file.exists(expression_file) ){
+                                 return (FALSE)
+                             }
+                             test_data <- read.table(expression_file, header = T, na.strings = 'NA')
+                             
+                             sample_cols = get_samples(test_data)
+                             
+                             flog.info('Test samples: %s', length(sample_cols))
+
+                             #colnames(test_data) = paste0('t_', sample_cols)
+                             if ('cor'  %in% colnames(data)){
+                                 test_data <- test_data[,c('chr', 'start', 'end', 'gene','feature',
+                                                  'feature_start', 'feature_end', 'hic_fragment_id' ,
+                                                  'type', 'cor', 'pair', sample_cols )]
+                             }else{
+
+                                 test_data <- test_data[,c('chr', 'start', 'end', 'gene','feature',
+                                                  'feature_start', 'feature_end', 'hic_fragment_id' ,
+                                                  'type', sample_cols )]
+                             }
+                             if (f_judge_debug(debug)){
+                                 ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
+                                 
+                             }
+                             merge_cols = c('feature','feature_start', 'feature_end', 'hic_fragment_id', 'type', 'pair')
+                             test_merge_data = test_data[!duplicated(test_data[, merge_cols]),c(merge_cols,sample_cols)]
+                             test_samples = paste0('t_', sample_cols)
+                             colnames(test_merge_data) = c(merge_cols, test_samples )
+                             
+                             
+                             merge_data = merge(data, test_merge_data, by = merge_cols, all.x = TRUE)
+
+                             f_assert(nrow(merge_data) == nrow(data), 'Merge error')
+                             
+                             inserted_data = merge_data[, test_samples]
+
+                             duplicated_rows=f_duplicated_cols(data[, merge_cols])
+                             missing_data = merge_data[rowSums(is.na(inserted_data)) == length(test_samples),merge_cols]
+
+                             flog.info('Missing features in the test data: %s', nrow(missing_data))
+
+                             data <<- merge_data
+                             return (TRUE)
+                         },
+
+                         test_gene_name = function(){
+                             return (str_replace(gene_name, '.[0-9]+$',''))
+                         },
                          
-                         read_data = function(test_prefix=NULL) {
+                         read_data = function() {
                              output_dir = f_p('./data/%s/', batch_name)
                              expression_file = f_p('%s/rnaseq/%s/%s.txt', output_dir, chr_str, gene_name)
 
-                             
+                   
                              
                              data <<- read.table(expression_file, header = T, na.strings = 'NA')
                              
@@ -40,8 +155,8 @@ GENE <- setRefClass("GENE",
                                                   'type', sample_cols )]
                              }               
                              
-                         },
-
+                         },                         
+                         
                          change_expression =function(new_batch_name, batch_mode = 'TF') {
                              #Change the mRNA values to another normalization method,
                              #e.g. quantile to peer normalization.
@@ -83,8 +198,13 @@ GENE <- setRefClass("GENE",
                          },
 
 
-                       subset_snps_in_tf_regions = function(batch_mode){
-
+                       subset_snps_in_tf_regions = function(batch_mode, debug = F){
+                           if (f_judge_debug(debug)){
+                               ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+                               
+                           }
+                           
                            if ( !grepl( 'SNPinTF', batch_mode)) return (NULL)
                            
                            regulatory_regions = subset(data, type == 'promoter' | type == 'enhancer')[, c('chr', 'feature_start', 'feature_end', 'feature')]
