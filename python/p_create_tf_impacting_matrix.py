@@ -22,18 +22,21 @@ if __doc__ is None:
     parser.add_argument("--chr",     help="The chr wanted to compute", default="chr22")
     parser.add_argument("--mode", help="Output type: test(only first 1000 variants); all(all the variants)", default="all")
     parser.add_argument('--batch_name', help = "462samples or 54samples", default = '462samples' )
+    parser.add_argument('--test', help = "Test mode will only check 10 individuals", default = 'False' )
     args = parser.parse_args()
     chr_num = args.chr
     mode_str = args.mode
     batch_name = args.batch_name
+    test_flag = args.test == 'True'
 else:
     chr_num = 'chr22'
     mode_str = 'all'
     batch_name = 'test'
+    test_flag = True
 batch_output_dir = f_get_batch_output_dir(batch_name)
 
 
-deepsea_dir = '%s/deep_result/%s/%s/evalue/het/' % (batch_output_dir, mode_str ,chr_num)
+deepsea_dir = '%s/deep_result/%s/%s/evalue/%s_het/' % (batch_output_dir, mode_str ,chr_num, batch_name)
 
 #deepsea_data = pd.read_csv('%s/infile.head.txt'%deepsea_dir, sep = ',')
 peak_list = f_get_tf_peak_list(project_dir)
@@ -62,15 +65,16 @@ print variation_dis.shape
 
 #Read the SNP locations.
 snp_data = pd.read_csv('%s/data/raw_data/wgs/1kg/additive_dir/%s.bed' % (project_dir, chr_num), sep = '\t',na_values = '.')
-print snp_data.head()
+print snp_data.ix[:,0:10].head()
 snp_data = snp_data.ix[:,['chr', 'start', 'SNP']]
 snp_data.index  = snp_data.start.astype(str)
 print snp_data.columns
 
 ############################
 
-loc_tf_list = ['ctcf','ebf1']
 variation_file_list = my.f_shell_cmd( "find %s -name '*.diff'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
+logging.info('Number of diff files %s', len(variation_file_list))
+
 
 variation_data = pd.read_csv(variation_file_list[0], sep =',')
 loc_tf_list = list(set( [ feature.split('|')[1].lower() for feature in my.grep_list('GM12878',variation_data.columns.values)]))
@@ -133,10 +137,16 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
     print tf_regions_table.file_path
     
     tf_regions_table.extract_bed()
-    #import ipdb; ipdb.set_trace()
+    if my.f_debug():
+        import ipdb; ipdb.set_trace()
 
-    snp_coverage_rate = 0
+    snp_coverage_list = []
     logging.info('Processed TF: %s' % loc_tf)
+
+    stats = []
+
+    if test_flag == True:
+        variation_file_list == variation_file_list[0:10]
     
     for variation_file in variation_file_list:
     
@@ -145,26 +155,36 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         variation_data_raw['start'] = variation_data_raw['pos'].astype(int) -1
         variation_data_raw['end'] =  variation_data_raw['pos'].astype(int)
         #import ipdb; ipdb.set_trace()
+
+        variation_data_raw.index = variation_data_raw.start.astype(str)
+        intersect_pos = list(set(snp_data.index).intersection(set(variation_data_raw.index)))
+        rare_pos = list(set(variation_data_raw.index) - set(snp_data.index))
+        
         if 'nearest' in batch_name:
             variation_data = f_subet_variation_according_to_tf_distance(variation_data_raw, loc_peak_tf, variation_dis)
             
-        elif 'snpOnly' in batch_name or my.f_get_server_name() == 'loire':
+        elif 'snpOnly' in batch_name:
             #import ipdb; ipdb.set_trace()
             #logging.debug('Keep SNPs')
-            variation_data_raw.index = variation_data_raw.start.astype(str)
-            intersect_pos = list(set(snp_data.index).intersection(set(variation_data_raw.index)))
+            if variation_file == variation_file_list[0]:
+                print "Variation and SNP data:"
+                print variation_data_raw.ix[1:10, 1:5]
+                print snp_data.head(10)
+            
+            
             variation_data=variation_data_raw.ix[intersect_pos,:]
-            snp_coverage_rate = snp_coverage_rate + float(len(intersect_pos))/(len(variation_data_raw.index)*len(variation_file_list))
-        elif 'rareVar' in batch_name:
+            snp_coverage_list.append(float(len(intersect_pos))/len(set(variation_data_raw.index)))
+            
+        elif 'rareVar' in batch_name or my.f_get_server_name() == 'loire' :
             #import ipdb; ipdb.set_trace()
             #logging.debug('Keep rare variants')
-            variation_data_raw.index = variation_data_raw.start.astype(str)
-            rare_pos = list(set(variation_data_raw.index) - set(snp_data.index))
             variation_data=variation_data_raw.ix[rare_pos,:]
-            snp_coverage_rate = snp_coverage_rate + float(len(rare_pos))/(len(variation_data_raw.index)*len(variation_file_list))
+            snp_coverage_list.append(float(len(rare_pos))/len(set(variation_data_raw.index)))
+
         else:
             variation_data = variation_data_raw
 
+        stats.append([ os.path.basename(variation_file), len(intersect_pos), len(rare_pos), len(set(variation_data_raw.index)), len(variation_data_raw.index), float(len(intersect_pos))/len(set(variation_data_raw.index))  ])
         #print variation_data.ix[:,0:10].head()
 
         #extract_variation_data from variation_table
@@ -200,26 +220,30 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         tf_regions_table.merge_feature(agg_variation_data)
 
         os.remove(tmp_bed_file)
-    logging.info('%s %s SNP coverage %s', batch_name, loc_tf, snp_coverage_rate)
+    if my.f_debug():
+        import ipdb; ipdb.set_trace()
+    target_list=['rareVar', 'test', 'snpOnly']
+    
+    if len(my.grep_list('.*(%s)'%'|'.join(target_list), [batch_name])) > 0:
+        print 'SNP coverage'
+        #print snp_coverage_list
+        print pd.DataFrame(stats).ix[1:10,:]
+        if len(snp_coverage_list) > 0:
+            logging.info('%s %s SNP coverage %s', batch_name, loc_tf, sum(snp_coverage_list)/len(snp_coverage_list))
+        
     if tf_regions_table.loc_file is not None:
         os.remove(tf_regions_table.loc_file)
-
-
+    
 for loc_tf in loc_tf_list[2:]:
     print loc_tf
-    parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir)
+    parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, variation_dis, batch_name)
     break 
 
-Parallel(n_jobs=4)(delayed(parse_one_tf)(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, variation_dis, batch_name) for loc_tf in loc_tf_list)  
 
-
-
-
-#Delete the half data dir.
-if my.f_get_server_name() != 'loire':
+if my.f_get_server_name() != 'loire' and 'clustdell' not in my.f_get_server_name(): #clustdell.cmmt.ubc.ca
+    Parallel(n_jobs=3)(delayed(parse_one_tf)(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, variation_dis, batch_name) for loc_tf in loc_tf_list)
     import shutil
     shutil.rmtree(deepsea_dir)
-
 
 
 tf_file_list = my.f_shell_cmd( "find %s -name '*_matrix.txt'"%(tf_variation_dir), quiet = True).split('\n')[0:-1]
@@ -232,7 +256,3 @@ tf_summary_list.columns = ['feature', 'path']
 tf_summary_list.to_csv('%s/data_path.csv'%tf_variation_dir, index = False, sep = ' ')
 
 print tf_summary_list.shape
-
-
-
-
