@@ -18,10 +18,10 @@ kg_dir = '%s/data/raw_data/wgs/1kg/' % project_dir
 
 ##Filter the vcf SNPs####
 
-chr_list=['22', '21', 'X']
-
-chr_vcf_file = '%s/ALL.head.vcf.gz' % kg_dir
+#Three input choices
+chr_list=['22', '10', '15']
 chr_list = ['Test']
+#chr_list = chr_list #use the chr_list in the project_meta_data.
 
 
 additive_dir = '%s/additive_445samples/' % kg_dir
@@ -42,14 +42,13 @@ for chr_num in chr_list:
     else:
         force_flag = ''
     
-    #Use the MAF from local population
+    #Find a list of rs_IDs for the SNPs.
     loc_maf_cmd = "%s/bcftools view -c1 -Ov %s --samples-file %s %s | %s/bcftools filter -e'MAF<0.05' - | grep -v -i 'MULTI_ALLELIC\|ALU\|#' | awk '{print $3}' > %s/chr%s.vcf.snps" % (bcftools_dir, force_flag, loc_sample_file, chr_vcf_file, bcftools_dir, additive_dir, chr_num)
     print loc_maf_cmd
     my.f_shell_cmd(loc_maf_cmd)
     
-    #Use the MAF from global population, other wise change of samples would affect the SNPs selected.
-
-    bcf_subset_cmd = " %s/bcftools view -c1 -Ov %s --samples-file %s %s " % ( bcftools_dir, force_flag, sample_file, chr_vcf_file, sample_vcf_file)
+    #A super set of potential variants including ones from testing samples.
+    bcf_subset_cmd = " %s/bcftools view -c1 -Ov %s --samples-file %s %s | bgzip > %s " % ( bcftools_dir, force_flag, sample_file, chr_vcf_file, sample_vcf_file)
 
     print bcf_subset_cmd
     my.f_shell_cmd(bcf_subset_cmd)
