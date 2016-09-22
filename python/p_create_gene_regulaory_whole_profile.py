@@ -2,7 +2,6 @@
 
 #This file is based on the gene_regulatory_fragment, the output of the p_assign_fragment_id_to_regions.
 
-
 from pycallgraph import PyCallGraph
 from pycallgraph.output import GraphvizOutput
 
@@ -11,18 +10,23 @@ from p_project_metadata import *
 #reload(p_region_table)
 
 
-
 def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file, delete_file = True ):
 
     #import ipdb; ipdb.set_trace()
     # Assign the fragment ID to feature matrix file
     feature_table = region_table(feature_matrix_file)
+    if feature_name == 'SNP':
+        #import ipdb; ipdb.set_trace()
+        sample_cols = feature_table.get_sample_cols()
+        feature_table.data[sample_cols] = feature_table.data[sample_cols].astype(np.float16)
+        print feature_table.data.head()
     feature_table.subset_one_chr(new_file_name = 'assign_hic_id_to_%s' % feature_name, chr_str = chr_str)
- 
+    #feature_table.filter_near_zero_columns()
     feature_overlap_data = feature_table.overlap_with_feature_bed(hic_id_file, value_col=3, value_name='hic_fragment_id')
     print sum(feature_overlap_data.duplicated())
     log('Size of feature_overlap_data', feature_overlap_data.shape)
     #log('Head of feature_overlap_data', feature_overlap_data.head())
+    print feature_table.data.head()
     log('Before feature id merge, data size', feature_table.data.shape)
     feature_table.merge_feature(feature_overlap_data)#based on the chr and start.
     log('After feature id merge, data size', feature_table.data.shape)
@@ -35,6 +39,10 @@ def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, 
     #print sum(feature_table.data.duplicated())
     #Merge the feature data to gene_regulatory_regions accoding to the fragment ID
     gene_regulatory_fragment_table = region_table(gene_regulatory_fragment_file)
+    cor_selection = gene_regulatory_fragment_table.data.cor >= 0.4
+    logging.info('Subset to hic score > 0.4, after filtering data size %s, original size %s', sum(cor_selection), len(cor_selection))
+    gene_regulatory_fragment_table.data = gene_regulatory_fragment_table.data[cor_selection]
+    
     print os.path.basename(gene_regulatory_fragment_file) + feature_name
     print gene_regulatory_fragment_table.file_path
     gene_regulatory_fragment_table.subset_one_chr(new_file_name = os.path.basename(gene_regulatory_fragment_file) + '.' + feature_name, chr_str = chr_str)
@@ -42,12 +50,18 @@ def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, 
 
     feature_table.data.rename(columns={'start':'feature_start','end':'feature_end'}, inplace=True)
     #log('Head of feature_data', feature_table.data.head())
-    gene_regulatory_fragment_table.merge_feature(feature_table.data, expected_cols = ['chr', 'hic_fragment_id'], check_index =False)  
+    logging.info('Before merge:')
+    gene_regulatory_fragment_table.merge_feature(feature_table.data, expected_cols = ['chr', 'hic_fragment_id'], check_index =False, how = 'inner', save_data = False)  
     #logging.debug(gene_regulatory_fragment_table.data.head())
-
+    logging.info('After merge:')
 
     #Return the overlapped data.
+    #import ipdb; ipdb.set_trace()
     sample_cols = my.grep_list('(NA|HG)[0-9]+', gene_regulatory_fragment_table.data.columns)
+    non_sample_cols = list(set(gene_regulatory_fragment_table.data.columns) - set(sample_cols))
+    gene_regulatory_fragment_table.data.drop_duplicates(cols= non_sample_cols, inplace = True)
+    
+    logging.info('After drop duplicates')
     overlapping_selection =   ~gene_regulatory_fragment_table.data.ix[:,sample_cols[0]].isnull()
     logging.debug('Non empty overlapping values: %s out of %s transcripts' % ( sum(overlapping_selection), gene_regulatory_fragment_table.data.shape[0]))
 
@@ -57,6 +71,29 @@ def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, 
     gene_regulatory_fragment_table.delete_file()
     return gene_regulatory_fragment_table.data[overlapping_selection]
     
+def f_add_hicID_to_SNPs(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file, delete_file = True ):
+    #import ipdb; ipdb.set_trace()
+    # Assign the fragment ID to feature matrix file
+    feature_table = region_table(feature_matrix_file)
+    if feature_name == 'SNP':
+        #import ipdb; ipdb.set_trace()
+        sample_cols = feature_table.get_sample_cols()
+        feature_table.data.fillna(0, inplace = True)
+        feature_table.data[sample_cols] = feature_table.data[sample_cols].astype(np.int16)
+        print feature_table.data.head()
+    feature_table.subset_one_chr(new_file_name = 'assign_hic_id_to_%s' % feature_name, chr_str = chr_str)
+    feature_table.filter_near_zero_columns()
+    feature_overlap_data = feature_table.overlap_with_feature_bed(hic_id_file, value_col=3, value_name='hic_fragment_id')
+    print sum(feature_overlap_data.duplicated())
+    log('Size of feature_overlap_data', feature_overlap_data.shape)
+    #log('Head of feature_overlap_data', feature_overlap_data.head())
+    print feature_table.data.head()
+    log('Before feature id merge, data size', feature_table.data.shape)
+    feature_table.merge_feature(feature_overlap_data)#based on the chr and start.
+    log('After feature id merge, data size', feature_table.data.shape)
+
+    feature_table.save_data()
+
 
 def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, gene_regulatory_fragment_file, project_dir):
 
@@ -65,7 +102,7 @@ def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, 
     #import ipdb; ipdb.set_trace()
     
     for feature_name in feature_path_df.index.values:
-
+        logging.info('Feature name: %s', feature_name)
         #Assign the fragment ID to histones
         #feature_matrix_file = '%s/data/histone/%s_removeBlacklist_Log10PvalueThreshold_5_DATA_MATRIX' % (project_dir, feature_name)
         feature_matrix_file = feature_path_df.ix[feature_name,'path']
@@ -80,35 +117,46 @@ def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, 
             feature_table.data['type'] = 'gene'
             feature_table.data.sort_index(axis=1, ascending=False, inplace=True)
             feature_table.data['NA12878'] = 1
-            gene_feature_data = feature_table.data
+            feature_table.data['cor'] = 1
+            feature_table.data['pair'] = '.'
+            gene_feature_data = feature_table.data.drop('strand', axis=1)
         else:
             logging.info('Feature: %s\n' % feature_name)
             logging.info('File name %s\n' % feature_matrix_file)
             print(feature_matrix_file)
+            #import ipdb; ipdb.set_trace()
             gene_feature_data = f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file )
+            if 'NA12878' not in gene_feature_data.columns:
+                gene_feature_data['NA12878'] = 0
+        logging.info('Individuals in gene_feature_data, %s', len(my.grep_list('(NA|HG)[0-9]+', gene_feature_data.columns)) )    
 
         if shared_individuals is None:
             shared_individuals =gene_feature_data.columns.values
-            combined_feature_data = gene_feature_data
+            first_flag= True
         else:
-            shared_individuals = list(set(shared_individuals).intersection(set(gene_feature_data.columns.values)))
-            combined_feature_data = pd.concat([ combined_feature_data.ix[:, shared_individuals], gene_feature_data.ix[:, shared_individuals] ])
-        logging.debug('Length of the shared columns: %s' % len(shared_individuals))
+            first_flag = False
+            print 'Set1 - Set 2: %s' % ':'.join(list(set(gene_feature_data.columns.values) - set(shared_individuals) ))
+            assert (set(shared_individuals) <= set(gene_feature_data.columns.values).union(set(['HG00101']))), 'Unknown colnames: %s' % ':'.join(list(set(shared_individuals) - set(gene_feature_data.columns.values)))
+    
+        sample_cols = my.grep_list('(NA|HG)[0-9]+', shared_individuals)
+        sample_cols.sort()
+        none_sample_cols = list(set(shared_individuals) - set(sample_cols))
+        #feature_data_list_shared = [ dataset[none_sample_cols + sample_cols] for dataset in feature_data_list ]
+        #gene_feature_data = gene_feature_data.ix[:, none_sample_cols + sample_cols]
+        #import ipdb; ipdb.set_trace()
+        none_sample_cols = ['chr',  'start',   'end', 'transcript_id',   'gene', 'feature',     'feature_start', 'feature_end', 'type', 'pair', 'hic_fragment_id', 'cor']
+        gene_feature_data.drop_duplicates(cols = none_sample_cols, inplace = True)
+        #import ipdb; ipdb.set_trace()
+        logging.info('After drop_duplicates and before writing')
+        
+        if first_flag:
+            gene_feature_data.ix[:,none_sample_cols + sample_cols].to_csv('%s/rnaseq/gene_regulatory_region_feature_profile.%s' % (project_dir, chr_str), sep = '\t', mode = 'w',float_format='%.4e' )
+        else:
+            gene_feature_data.ix[:, none_sample_cols + sample_cols].to_csv('%s/rnaseq/gene_regulatory_region_feature_profile.%s' % (project_dir, chr_str), sep = '\t', mode = 'a', header = False,float_format='%.4e' )
+
+
+        #logging.debug('Length of the shared columns: %s' % len(shared_individuals))
         #feature_data_list.append(gene_feature_data)
-
-    
-    sample_cols = my.grep_list('(NA|HG)[0-9]+', shared_individuals)
-    sample_cols.sort()
-    none_sample_cols = list(set(shared_individuals) - set(sample_cols))
-    #feature_data_list_shared = [ dataset[none_sample_cols + sample_cols] for dataset in feature_data_list ]
-    combined_feature_data = combined_feature_data.ix[:, none_sample_cols + sample_cols]
-    #import ipdb; ipdb.set_trace()
-
-    combined_feature_data.drop_duplicates(cols = none_sample_cols, inplace = True)
-    
-    combined_feature_data.to_csv('%s/rnaseq/gene_regulatory_region_feature_profile.%s' % (project_dir, chr_str), sep = '\t')
-    meta_data = combined_feature_data.ix[:, none_sample_cols]
-    print 'Number of duplicated lines %s' % meta_data.duplicated().sum()
     
 import random
 import unittest
@@ -153,7 +201,7 @@ class TestDatabaseTable(unittest.TestCase):
 if __name__ == "__main__":
 
     suite = unittest.TestLoader().loadTestsFromTestCase( TestDatabaseTable )
-    unittest.TextTestRunner(verbosity=1,stream=sys.stderr).run( suite )
+    #unittest.TextTestRunner(verbosity=1,stream=sys.stderr).run( suite )
 
     parser = argparse.ArgumentParser(description='Extract the deepsea predictions of one tf.Deepsea prediction is sample based. The output of this script is TF based.')
     print '==========',__doc__
@@ -175,20 +223,22 @@ if __name__ == "__main__":
     chr_str = chr_num
     
     print "<--------------%s, %s, %s" % ( chr_str, batch_name, mode_str)
+
     
     batch_output_dir = f_get_batch_output_dir(batch_name)
     data_path_df = pd.read_csv('%s/output/data_path.csv'%batch_output_dir, sep = ' ', index_col = 0)
    
     tf_path_df = pd.read_csv('%s/output/tf_variation/%s/%s/data_path.csv'%(batch_output_dir, mode_str, chr_str), sep = ' ', index_col = 0)
-
-    data_path_merge = pd.concat([data_path_df, tf_path_df])
+    
+    SNP_path = pd.DataFrame( {'feature':['SNP'], 'path':['%s/data/raw_data/wgs/1kg/additive_dir/%s.bed'%(project_dir, chr_num)]})
+    SNP_path.set_index(['feature'], inplace = True)
+    data_path_merge = pd.concat([data_path_df,  tf_path_df])
     if batch_name == 'test':
-        data_path_merge = data_path_merge.ix[0:6,:]
+        data_path_merge = data_path_merge.ix[[0,4,5],:]
+    #import ipdb; ipdb.set_trace()
     print data_path_merge.head()
+    print 'data_path_merge size',data_path_merge.shape
     gene_regulatory_fragment_file = '%s/rnaseq/gene_regulatory_fragment.%s'  % (batch_output_dir, chr_str)
     f_combine_multiple_features_to_genes(data_path_merge, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_output_dir)
-
-
-
-
-
+    #This is only for the SNPs. Save this for the s_gene_split. 
+    f_add_hicID_to_SNPs('SNP', SNP_path.ix['SNP', 'path'],chr_str, hic_id_file, gene_regulatory_fragment_file)
