@@ -10,7 +10,7 @@ from p_project_metadata import *
 #reload(p_region_table)
 
 
-def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file, delete_file = True ):
+def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_name, delete_file = True ):
 
     #import ipdb; ipdb.set_trace()
     # Assign the fragment ID to feature matrix file
@@ -21,7 +21,11 @@ def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, 
         feature_table.data[sample_cols] = feature_table.data[sample_cols].astype(np.float16)
         print feature_table.data.head()
     feature_table.subset_one_chr(new_file_name = 'assign_hic_id_to_%s' % feature_name, chr_str = chr_str)
-    #feature_table.filter_near_zero_columns()
+
+    if 'keepLow' not in batch_name:
+        logging.info('Remove low frequency features < 5%')
+        feature_table.filter_near_zero_columns()
+        
     feature_overlap_data = feature_table.overlap_with_feature_bed(hic_id_file, value_col=3, value_name='hic_fragment_id')
     print sum(feature_overlap_data.duplicated())
     log('Size of feature_overlap_data', feature_overlap_data.shape)
@@ -71,7 +75,7 @@ def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, 
     gene_regulatory_fragment_table.delete_file()
     return gene_regulatory_fragment_table.data[overlapping_selection]
     
-def f_add_hicID_to_SNPs(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file, delete_file = True ):
+def f_add_hicID_to_SNPs(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_name, delete_file = True ):
     #import ipdb; ipdb.set_trace()
     # Assign the fragment ID to feature matrix file
     feature_table = region_table(feature_matrix_file)
@@ -82,7 +86,8 @@ def f_add_hicID_to_SNPs(feature_name, feature_matrix_file, chr_str, hic_id_file,
         feature_table.data[sample_cols] = feature_table.data[sample_cols].astype(np.int16)
         print feature_table.data.head()
     feature_table.subset_one_chr(new_file_name = 'assign_hic_id_to_%s' % feature_name, chr_str = chr_str)
-    feature_table.filter_near_zero_columns()
+    if 'keepLow' not in batch_name:
+        feature_table.filter_near_zero_columns()
     feature_overlap_data = feature_table.overlap_with_feature_bed(hic_id_file, value_col=3, value_name='hic_fragment_id')
     print sum(feature_overlap_data.duplicated())
     log('Size of feature_overlap_data', feature_overlap_data.shape)
@@ -95,7 +100,7 @@ def f_add_hicID_to_SNPs(feature_name, feature_matrix_file, chr_str, hic_id_file,
     feature_table.save_data()
 
 
-def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, gene_regulatory_fragment_file, project_dir):
+def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, gene_regulatory_fragment_file, project_dir, batch_name):
 
     feature_data_list = []
     shared_individuals = None
@@ -125,7 +130,7 @@ def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, 
             logging.info('File name %s\n' % feature_matrix_file)
             print(feature_matrix_file)
             #import ipdb; ipdb.set_trace()
-            gene_feature_data = f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file )
+            gene_feature_data = f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_name)
             if 'NA12878' not in gene_feature_data.columns:
                 gene_feature_data['NA12878'] = 0
         logging.info('Individuals in gene_feature_data, %s', len(my.grep_list('(NA|HG)[0-9]+', gene_feature_data.columns)) )    
@@ -224,7 +229,6 @@ if __name__ == "__main__":
     
     print "<--------------%s, %s, %s" % ( chr_str, batch_name, mode_str)
 
-    
     batch_output_dir = f_get_batch_output_dir(batch_name)
     data_path_df = pd.read_csv('%s/output/data_path.csv'%batch_output_dir, sep = ' ', index_col = 0)
    
@@ -239,6 +243,6 @@ if __name__ == "__main__":
     print data_path_merge.head()
     print 'data_path_merge size',data_path_merge.shape
     gene_regulatory_fragment_file = '%s/rnaseq/gene_regulatory_fragment.%s'  % (batch_output_dir, chr_str)
-    f_combine_multiple_features_to_genes(data_path_merge, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_output_dir)
+    f_combine_multiple_features_to_genes(data_path_merge, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_output_dir, batch_name)
     #This is only for the SNPs. Save this for the s_gene_split. 
-    f_add_hicID_to_SNPs('SNP', SNP_path.ix['SNP', 'path'],chr_str, hic_id_file, gene_regulatory_fragment_file)
+    f_add_hicID_to_SNPs('SNP', SNP_path.ix['SNP', 'path'],chr_str, hic_id_file, gene_regulatory_fragment_file, batch_name)
