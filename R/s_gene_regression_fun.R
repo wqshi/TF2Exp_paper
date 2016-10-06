@@ -16,7 +16,6 @@ tuneGridList = list(
                           .lambda = c(0.0001, 0.001, 0.005 ,seq(.01, .2, length = 10))),
     cv.glmnet = expand.grid(.alpha = c(0, .1, .2, .4, .6, .8, 1),
                           .lambda = c(0.0001, 0.001, 0.005 ,seq(.01, .2, length = 10)))
-
 )
 
 f_get_server_name <- function(){
@@ -456,7 +455,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 
 f_convet_opts_to_output_dir <- function(opt){
     
-    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|gm12878|miRNA|permutation|TF_exp|add_predict_TF|YRI)',names(opt),
+    useful_opts = grep('(batch_name|help|test|gene|chr|output_mode|gm12878|miRNA|permutation|TF_exp|add_predict_TF)',names(opt),
                        value = TRUE, invert = TRUE, ignore.case = T)
     useful_df=ldply(opt[useful_opts])
     useful_df = subset(useful_df, V1 != '' )
@@ -604,7 +603,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 }
 
 f_add_tf_interactions_old2 <- function(data, batch_mode = 'all', debug=FALSE){
-    if ( grepl('noInteract', batch_mode)) return (data)
+    if ( !grepl('addInteract', batch_mode)) return (data)
     
     #Add the TF interactions
     valid_interaction = read.table('./data/raw_data/biogrid/tf_interactions.txt')
@@ -703,13 +702,14 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 
 f_add_tf_interactions <- function(data, batch_mode = 'All', hic_thres = NA, debug =FALSE){
 
-    if ( grepl('noInteract|^SNP$|^SNPinTF$', batch_mode)) return (data)
+    if ( !grepl('addInteract', batch_mode)) return (data)
+    
     if (!is.na(hic_thres) ){
         exclude_enhancer=data$cor < hic_thres & data$type == 'enhancer'
         data = data[!exclude_enhancer, ]
     }
     
-                                        #Add the TF interactions
+    #Add the TF interactions
     tf_regions = data
     tf_regions = tf_regions[grep('DNase|H[0-9]K[0-9]|RNASEQ|rs[0-9]+', tf_regions$feature, invert= TRUE),]
     tf_regions=tf_regions[!duplicated(tf_regions),]
@@ -950,7 +950,7 @@ browser(expr=is.null(.ESSBP.[["@4@"]]))##:ess-bp-end:##
     #Remove the population
     if (add_YRI == FALSE){
         flog.info('Remove the YRI')
-        output_data = subset(input_data, population != 'YRI')
+        input_data = subset(input_data, population != 'YRI')
     }
 
     shared_cols = intersect(snyder_samples, rownames(input_data))
@@ -1111,7 +1111,6 @@ f_filter_training_features <- function(input_data, batch_name, target_col, debug
     test_data = input_data[ grep('^t_', rownames(input_data)), ]
     rownames(test_data)
     
-    
     if(batch_name == 'SNP' | grepl( 'SNPinTF', batch_name)){
         flog.info('batch mode:%s', batch_name)
         output_data = input_data[, grep('(SNP|gene.RNASEQ)', colnames(input_data))]
@@ -1119,7 +1118,7 @@ f_filter_training_features <- function(input_data, batch_name, target_col, debug
         interaction_cols = grep('P_E|TF.overlap', colnames(input_data), value = T)
         output_data = input_data[, grep('^SNP', colnames(input_data), invert = T)]
         output_data[train_samples, interaction_cols] = input_data[sample(x = train_samples, size = length(train_samples)), interaction_cols]
-    }else if( batch_name %in% c('TF', 'noInteract', 'fakeInteract', 'TFfilterMinor', 'TFsnpMatch')){
+    }else if( grepl('^TF', batch_name) | batch_name %in% c('TF', 'noInteract', 'fakeInteract', 'TFfilterMinor', 'TFsnpMatch')){
         flog.info('batch mode:%s', batch_name)
         output_data = input_data[, grep('^SNP', colnames(input_data), invert = T)]
     }else if (batch_name == 'AlltfShuffle'){
@@ -1173,14 +1172,7 @@ t_filter_training_features <- function(){
 }
 
 
-t_get_genotype_matrix_for_gene <- function(){
-    chr_str = 'chr22'
-    all.entrezgene = f_get_all.entrezgene('./')
-    gtX = f_get_genetype_matrix(chr_str)
-    gene_name = 'ENSG00000183597.11'
-    gene_snps=f_get_genotype_matrix_for_gene(gene_name)
 
-}
 
 source('s_caret_learning_curve.R')
 library(RUnit)
@@ -1190,19 +1182,21 @@ if (getOption('run.main', default=TRUE)) {
 }
 
 
-
-
-
-
-f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty){
+f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty, debug = False){
     #cor_vector: hic correlation/interaction score.
+    if (f_judge_debug(debug)){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+        
+    }
+    
     input_data = input_data_raw[, colnames(input_data_raw) != 'gene.RNASEQ']
     if ( (!'cor' %in% colnames(cor_vector)) | add_penalty == FALSE | all(cor_vector$cor == 1 | cor_vector$cor == 0 ) ) {
         penalty_factors = rep(1, ncol(input_data))
         names(penalty_factors) = colnames(input_data)
         return ( penalty_factors )
     }
-        
+    
     real_max_cor = max(cor_vector$cor[cor_vector$cor != 1])
     real_min_cor = min(cor_vector$cor[cor_vector$cor != 0])
     cor_vector$cor[cor_vector$cor == 0] = real_min_cor/2
@@ -1270,9 +1264,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 }
 
 
-f_judge_debug<-function(debug_flag){
-    return (f_get_server_name() == 'loire' & debug_flag)
-}
+
 
 f_input_stats <- function(input_data, batch_mode){
     library(stringr)
@@ -1312,7 +1304,7 @@ f_my_cor<-function(pred, obs){
 }
 
 
-f_test_in_other_pop <- function(fit, final_data, test_samples, batch_name, debug = F){
+f_test_in_other_pop <- function(fit, final_data, test_samples, train_samples , batch_name, debug = F){
     if (length(test_samples)>1 & !grepl('snpOnly|rareVar', batch_name) ){
         if (f_judge_debug(debug)){
             ##:ess-bp-start::browser@nil:##
@@ -1351,3 +1343,21 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         return (rep(NA, times=4))
     }
 }
+
+
+f_check_duplicated_rows <- function(input_data){
+    input_data[duplicated(input_data)| duplicated(input_data, fromLast = T) ,]
+}
+
+f_identical_rows <- function(line1, line2){
+    all(line1 == line2)
+}
+
+f_find_identical_rows <- function(input_data, input_row){
+    apply(input_data, MARGIN =1, f_identical_rows, input_row)
+}
+
+
+
+
+
