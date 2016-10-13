@@ -5,16 +5,16 @@ library(preprocessCore)
 library(peer)
 library(futile.logger)
 source('s_project_funcs.R')
-f_check_na_rows <- function(input_data){
-    na_index=which(rowSums(is.na(input_data)) > 0)
-    flog.info('%s NA rows detected', length(na_index))
-    return (na_index)
-}
-
                                         #1) Variance stabilising transformation (i.e. asinh transformation) 
                                         # peaksMat is the count matrix for RNA transcripts (TPMs) obtained from Sailfish
                                         #batch_size = '462samples'
-batch_size = '445samples'
+
+selected_samples = read.table('./data/raw_data/samples358.ped')
+selected_samples$V1
+
+
+#batch_size = '445samples'
+batch_size = '358samples'
 batch_name = f_p( '%s_sailfish', batch_size)
                                         #batch_name = '54samples'
 batch_output_dir = f_p('./data/%s/', batch_name)
@@ -22,20 +22,17 @@ batch_output_dir = f_p('./data/%s/', batch_name)
 rna_seq_raw = read.csv(file = f_p('%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX.sailfish', batch_output_dir) , sep=' ', header =TRUE)
 rownames(rna_seq_raw) = rna_seq_raw$gene
 rna_seq_raw$gene = NULL
-
-rna_seq_raw_filter=rna_seq_raw[complete.cases(rna_seq_raw),]
-flog.info('Filter NA: %s out of %s', nrow(rna_seq_raw_filter), nrow(rna_seq_raw))
-
-#rna_seq_raw_rmZero = rna_seq_raw_filter[rowSums(rna_seq_raw_filter == 0) < 0.25*ncol(rna_seq_raw),]
-near_zero = caret::nearZeroVar(t(rna_seq_raw_filter))
-if(length(near_zero) == 0){
-    rna_seq_raw_rmZero = rna_seq_raw
-}else{
-    rna_seq_raw_rmZero = rna_seq_raw[-(near_zero),]
+if (grepl('358', batch_name)){
+    rna_seq_raw = rna_seq_raw[, colnames(rna_seq_raw) %in% selected_samples$V1]
 }
 
-flog.info('Filter Zero: %s out of %s', nrow(rna_seq_raw_rmZero), nrow(rna_seq_raw_filter))
-write.table(rna_seq_raw_rmZero, file = f_p('%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX', batch_output_dir), quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+
+rna_seq_raw_rmZero = f_filter_NA_rm_zeroVar(rna_seq_raw)
+
+gene = data.frame( gene = row.names(rna_seq_raw_rmZero) )
+write_data = cbind(gene, rna_seq_raw_rmZero)
+
+write.table(write_data, file = f_p('%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX', batch_output_dir), quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
 
 
 raw_index=f_check_na_rows(rna_seq_raw_rmZero)
@@ -59,7 +56,7 @@ f_check_na_rows(peaksMat_asinh_std)
 head10(peaksMat_asinh_std)
 
 target_gene = 'ENSG00000063515.2'
-peaksMat_asinh_std[target_gene,1:10]
+#peaksMat_asinh_std[target_gene,1:10]
 
                                         # 3) remove genes with zero SD
 peaksMat_asinh_std = peaksMat_asinh_std[rSds>0,]
@@ -80,8 +77,8 @@ write_data1 = cbind(gene, peaksMat_asinh_std_qn)
 
 
 
-                                        # 5) removing peer factors
-                                        #for( peerFactor in c(2:20)){
+
+                                        
 
 PEER_plotModel <- function(model){
     par(mfrow=c(2,1))
@@ -102,7 +99,7 @@ PEER_plotModel <- function(model){
 
 
 
-                                        #Read covariate
+##Read covariate
 sample_info = read.table(f_p('./data/462samples/chr_vcf_files/integrated_call_samples_v3.20130502.ALL.panel'), header = TRUE, row.names = 1)
 covariate=sample_info[colnames(peaksMat_asinh_std_qn), c('pop', 'gender')]
 
@@ -126,10 +123,10 @@ f_cap_matrix <- function(loc_data, low_threshold, up_threshold){
 
 
 set.seed(191)
-f_heatmap_genes(f_cap_matrix(peaksMat_asinh_std_qn, -5, 5), f_p('%s/gene_exp_heatmap_peer%s.tiff', snyder_original_dir, 0), seed_number = 11)
+#f_heatmap_genes(f_cap_matrix(peaksMat_asinh_std_qn, -5, 5), f_p('%s/gene_exp_heatmap_peer%s.tiff', snyder_original_dir, 0), seed_number = 11)
 
 
-                                        #peer_range = c(2:20)
+
 peer_range = c(10)
 
 for (peerFactor in peer_range){
@@ -156,7 +153,7 @@ for (peerFactor in peer_range){
     gene = data.frame( gene = row.names(peaksMat_norm) )
     write_data = cbind(gene, peaksMat_norm)
     head(write_data[,1:10])
-    f_heatmap_genes(f_cap_matrix(peaksMat_norm, -5, 5), f_p('%s/gene_exp_heatmap_peer%s.tiff', snyder_original_dir, peerFactor), seed_number=11)
+    #f_heatmap_genes(f_cap_matrix(peaksMat_norm, -5, 5), f_p('%s/gene_exp_heatmap_peer%s.tiff', snyder_original_dir, peerFactor), seed_number=11)
 }
 flog.info(snyder_original_dir)
 write.table(write_data, file = f_p('%s/GEUVADIS.Gene.DATA_MATRIX', snyder_original_dir), quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
@@ -166,64 +163,68 @@ head(write_data[1:10, 1:4])
 ########Explicitly remove the covariate######
 snyder_norm_dir = f_p('./data/%s_snyder_norm/rnaseq/', batch_size)
 dir.create(snyder_norm_dir, recursive = T)
-model = PEER()
 
-na.index=f_check_na_rows(peaksMat_asinh_std_qn)
+peer_range = 1:30
 
-dim(peaksMat_asinh_std_qn)
+for (peerFactor in peer_range){
+    flog.info('Hidden factor %s', peerFactor)
+    model = PEER()
+    na.index=f_check_na_rows(peaksMat_asinh_std_qn)
 
-colnames(peaksMat_asinh_std_qn) == rownames(covariate)
+    dim(peaksMat_asinh_std_qn)
 
-PEER_setNk(model,peerFactor)
-PEER_setPhenoMean(model,t(as.matrix(peaksMat_asinh_std_qn)))
+    colnames(peaksMat_asinh_std_qn) == rownames(covariate)
 
-##Peer needs numeric values for covariates.
-source('s_gene_regression_fun.R')
-head(covariate)
-table(covariate$pop)
-covariate$pop = as.character(covariate$pop)
+    PEER_setNk(model,peerFactor)
+    PEER_setPhenoMean(model,t(as.matrix(peaksMat_asinh_std_qn)))
 
-dummies <- dummyVars(as.formula(' ~ .'), data = covariate)
-cov_dummy=as.data.frame(predict(dummies, newdata = covariate))
-colSums(cov_dummy)
+    ##Peer needs numeric values for covariates.
+    source('s_gene_regression_fun.R')
+    head(covariate)
+    table(covariate$pop)
+    covariate$pop = as.character(covariate$pop)
 
-#cov_dummy$gender.male = NULL
-cov_dummy$gender.female = NULL
-#cov_dummy$popCEU = NULL
-
-#PEER_setCovariates(model, as.matrix(cov_dummy[,c('gender.female', 'gender.male')]))
-PEER_setCovariates(model, as.matrix(cov_dummy))
-PEER_getCovariates(model)
-#PEER_setAdd_mean(model, TRUE)
-PEER_setNmax_iterations(model, 1000)
-PEER_update(model)
+    dummies <- dummyVars(as.formula(' ~ .'), data = covariate)
+    cov_dummy=as.data.frame(predict(dummies, newdata = covariate))
 
 
-tiff(filename = f_p('%s/peer.tif', snyder_norm_dir))
-PEER_plotModel(model)
-dev.off()
+    print(colnames(cov_dummy))
+    ##cov_dummy$gender.male = NULL
+    cov_dummy$genderfemale = NULL
+    ##cov_dummy$popCEU = NULL
+    colSums(cov_dummy)
+    ##PEER_setCovariates(model, as.matrix(cov_dummy[,c('gender.female', 'gender.male')]))
+    PEER_setCovariates(model, as.matrix(cov_dummy))
+    PEER_getCovariates(model)
+    ##PEER_setAdd_mean(model, TRUE)
+    PEER_setNmax_iterations(model, 1000)
+    PEER_update(model)
 
-cov_factors = PEER_getX(model)
-head(cov_factors)
 
-cov_weights = PEER_getW(model)
-head(cov_weights)
-cov_precision = PEER_getAlpha(model)
-cov_residuals = t(PEER_getResiduals(model))
-cov_peer = (cov_residuals-rowMeans(cov_residuals))/rowSds(cov_residuals)
-cov_peer_norm = normalize.quantiles(cov_peer)
-colnames(cov_peer_norm)=colnames(peaksMat_asinh_std_qn)
-rownames(cov_peer_norm)=rownames(peaksMat_asinh_std_qn)            
-#}
+    tiff(filename = f_p('%s/peer.tif', snyder_norm_dir))
+    PEER_plotModel(model)
+    dev.off()
 
-gene = data.frame( gene = row.names(peaksMat_norm) )
-cov_write_data = cbind(gene, cov_peer_norm)
-head(write_data[,1:10])
-f_heatmap_genes(cov_peer_norm, f_p('%s/gene_exp_heatmap.tiff', snyder_norm_dir))
-library(futile.logger)
-flog.info(snyder_norm_dir)
-write.table(cov_write_data, file = f_p('%s/GEUVADIS.Gene.DATA_MATRIX', snyder_norm_dir), quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+    cov_factors = PEER_getX(model)
+    head(cov_factors)
 
+    cov_weights = PEER_getW(model)
+    head(cov_weights)
+    cov_precision = PEER_getAlpha(model)
+    cov_residuals = t(PEER_getResiduals(model))
+    cov_peer = (cov_residuals-rowMeans(cov_residuals))/rowSds(cov_residuals)
+    cov_peer_norm = normalize.quantiles(cov_peer)
+    colnames(cov_peer_norm)=colnames(peaksMat_asinh_std_qn)
+    rownames(cov_peer_norm)=rownames(peaksMat_asinh_std_qn)            
+
+    gene = data.frame( gene = row.names(peaksMat_norm) )
+    cov_write_data = cbind(gene, cov_peer_norm)
+    head(write_data[,1:10])
+    #f_heatmap_genes(cov_peer_norm, f_p('%s/gene_exp_heatmap.tiff', snyder_norm_dir))
+    library(futile.logger)
+    flog.info(snyder_norm_dir)
+    write.table(cov_write_data, file = f_p('%s/GEUVADIS.Gene.DATA_MATRIX.peer%s', snyder_norm_dir, peerFactor), quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+}
 
 
 
