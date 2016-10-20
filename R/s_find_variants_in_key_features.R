@@ -12,6 +12,8 @@ return_list_tf = f_summary_regression_results(batch_name, 'chr22', TF_model, rsy
 
 sum(return_list_tf$performance$performance > 0.05, na.rm = T)
 
+
+#Read loc of variants, MAF
 var_loc = read.table(f_p('./data/raw_data/wgs/1kg/maf/%s.loc', chr_str), sep = '\t', header = T)
 colnames(var_loc) = c('chr', 'pos', 'name', 'ref', 'alt')
 var_maf = read.table(f_p('./data/raw_data/wgs/1kg/maf/%s.maf', chr_str), sep = '\t', header = T)
@@ -22,9 +24,10 @@ head10(var_impact)
 var_impact %>% filter(pos == 46645148)
 var_loc %>% filter(pos == 46645148)
 
+
 var_feature_bed_subset = f_snp_and_impact_in_tf_features(return_list_tf$features, chr_str, var_loc, var_impact, var_maf, debug = F)
 dim(var_feature_bed_subset)
-head
+head(var_feature_bed_subset)
 var_feature_bed_ref = f_snp_and_impact_in_tf_features(return_list_tf$features, chr_str, var_loc, var_ref, var_maf, debug = F)
 var_feature_bed_subset$ref = var_feature_bed_ref$impact
 
@@ -34,8 +37,6 @@ var_feature_bed_subset$sign_ratio = with(var_feature_bed_subset, impact/ref)
 as.data.frame(var_feature_bed_subset)[which(var_feature_bed_subset$alt_ratio > 0.5),c('ref', 'impact', 'alt_ratio','sign_ratio')]
 
 as.data.frame(var_feature_bed_subset)[var_feature_bed_subset$ref < 0.1,c('ref', 'impact', 'alt_ratio','sign_ratio')]
-
-var_impact %>% filter(pos == 50963540)
 
 head(var_feature_bed_subset, n = 20)
 
