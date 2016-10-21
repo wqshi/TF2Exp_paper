@@ -1,13 +1,17 @@
 source('s_project_funcs.R')
 chr_str = 'chr22'
-batch_name = '445samples_region'
+#batch_name = '445samples_region'
 source('s_summary_fun.R')
 source('r_feature_analysis_fun.R', chdir = T)
 maf_table_raw = read.table('./data/raw_data/wgs/1kg/freq_stat.frq', header = T)
 library(dplyr)
 
 
-TF_model = 'rm.histone_model.cv.glmnet_rm.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZeronoInteract'
+#TF_model = 'rm.histone_model.cv.glmnet_rm.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZeronoInteract'
+batch_name = '358samples_regionkeepLow'
+TF_model = "rm.histone_model.cv.glmnet_rm.penalty_rm.YRI_population.None_new.batch.358samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZero" 
+
+
 return_list_tf = f_summary_regression_results(batch_name, 'chr22', TF_model, rsync_flag = TRUE, return_features = TRUE)
 
 sum(return_list_tf$performance$performance > 0.05, na.rm = T)
@@ -20,46 +24,31 @@ var_maf = read.table(f_p('./data/raw_data/wgs/1kg/maf/%s.maf', chr_str), sep = '
 var_impact = read.table( f_p('./data/%s/deep_result/all/chrMerge2/evalue/%s.diff.gz', batch_name, chr_str), header = T, sep = ',')
 var_ref = read.table( f_p('./data/%s/deep_result/all/chrMerge2/evalue/%s.ref.gz', batch_name, chr_str), header = T, sep = ',')
 
-head10(var_impact)
-var_impact %>% filter(pos == 46645148)
-var_loc %>% filter(pos == 46645148)
 
-
+#Assign the SNPs impact and ref score to the feature region.
 var_feature_bed_subset = f_snp_and_impact_in_tf_features(return_list_tf$features, chr_str, var_loc, var_impact, var_maf, debug = F)
 dim(var_feature_bed_subset)
 head(var_feature_bed_subset)
 var_feature_bed_ref = f_snp_and_impact_in_tf_features(return_list_tf$features, chr_str, var_loc, var_ref, var_maf, debug = F)
 var_feature_bed_subset$ref = var_feature_bed_ref$impact
-
 f_ASSERT(all(var_feature_bed_ref$snp == var_feature_bed_subset$snp), 'Mis-match')
+
 var_feature_bed_subset$alt_ratio = with(var_feature_bed_subset, abs(impact)/ref)
 var_feature_bed_subset$sign_ratio = with(var_feature_bed_subset, impact/ref)
-as.data.frame(var_feature_bed_subset)[which(var_feature_bed_subset$alt_ratio > 0.5),c('ref', 'impact', 'alt_ratio','sign_ratio')]
 
-as.data.frame(var_feature_bed_subset)[var_feature_bed_subset$ref < 0.1,c('ref', 'impact', 'alt_ratio','sign_ratio')]
-
-head(var_feature_bed_subset, n = 20)
-
-hist(var_feature_bed_subset$ref, breaks = 100)
-
-head(var_feature_bed_subset)
-
-head(var_feature_bed_ref)
-
-hist(var_feature_bed_ref$impact)
-hist(var_feature_bed_subset$impact)
-
-head(var_feature_bed_subset)
 var_feature_bed_subset$variant_type = 'common_snp'
 var_feature_bed_subset$variant_type[var_feature_bed_subset$maf < 0.05] = 'rare_var' 
 
-head(var_feature_bed_subset)
 
-dim(var_feature_bed_subset)
 
-colnames(var_feature_bed_subset)
+hist(var_feature_bed_subset$ref, main = 'Reference binding score', xlab = 'ref')
+hist(var_feature_bed_subset$impact)
 
 var_feature_bed_subset = as.data.frame(var_feature_bed_subset)
+
+
+
+
 
 
 var_feature_bed_subset_sort = f_sort_by_col(var_feature_bed_subset, 'impact')
