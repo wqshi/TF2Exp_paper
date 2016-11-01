@@ -1,0 +1,18 @@
+Add the guide lines for future self.
+
+s_batch_run.sh: run the regression models on one chromosome. 
+The core is to run the s_run_single_gene.sh
+
+
+Compare the selected features in two models: r_linkage_analysis.R
+
+
+The GO enrichment and well predict gene analysis: s_summary_regression_results.R
+
+
+s_summary_regression_features.R:
+* Most freuqent selected features
+* Compare the features in promoter and enhancer interms of coefficient, distance
+* A fihser stats for the enriched features.
+
+
