@@ -30,6 +30,7 @@ if (is.null(opt$batch_name)){
     batch_name = '54samples_genebody'
     #batch_name = '462samples_quantile_rmNA'
     #batch_name = '462samples_log_quantile'
+    #batch_name = '445samples_sailfish'
     seperator = ' '
 }else{
     batch_name = opt$batch_name
@@ -110,6 +111,7 @@ dim(rna_expression_values)
 #head(rna_expression_values)
 near_zero = caret::nearZeroVar(t(rna_expression_values))
 
+
 if(length(near_zero) == 0){
     rna_seq = rna_seq_raw
 }else{
@@ -144,10 +146,10 @@ if(length(grep('genebody', batch_name)) > 0){#make it default to whole gene regi
     rna_seq[reverse_strand,'start'] = tmp_data[reverse_strand, 'start'] - 2000
     rna_seq[reverse_strand,'end'] = tmp_data[reverse_strand, 'end'] + 2000
 }else{#Only the TSS regions
-    rna_seq[forward_strand,'start'] = tmp_data[forward_strand, 'start'] - 5000
-    rna_seq[forward_strand,'end'] = tmp_data[forward_strand, 'start'] + 5000
-    rna_seq[reverse_strand,'start'] = tmp_data[reverse_strand, 'end'] - 5000
-    rna_seq[reverse_strand,'end'] = tmp_data[reverse_strand, 'end'] + 5000
+    rna_seq[forward_strand,'start'] = tmp_data[forward_strand, 'start'] - 2000
+    rna_seq[forward_strand,'end'] = tmp_data[forward_strand, 'start'] + 2000
+    rna_seq[reverse_strand,'start'] = tmp_data[reverse_strand, 'end'] - 2000
+    rna_seq[reverse_strand,'end'] = tmp_data[reverse_strand, 'end'] + 2000
 }
 
 
@@ -175,7 +177,7 @@ rna_seq_reordered2 = rna_seq_reordered[chr_rows,]
 rna_seq_sorted = rna_seq_reordered2[with(rna_seq_reordered2, order(chr, start, end)), ]
 
 head(rna_seq_sorted)
-
+cat('Size of genes', nrow(rna_seq_sorted),'\n')
 write.table(format(rna_seq_sorted, digits = 4), file = f_p('%s/rnaseq/transcript_data.bed', batch_output_dir), quote = F, sep = '\t', row.names = F)
 
 
