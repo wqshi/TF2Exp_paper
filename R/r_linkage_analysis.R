@@ -22,9 +22,15 @@ library(ggplot2)
 
 #ggplot(ld_table, aes(MAF_A, MAF_B)) + geom_point()
 
-###Get the SNPs from the SNPinTF model:
-SNPinTF = 'rm.histone_model.cv.glmnet_add.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.SNPinTF_other.info.normCor'
-return_list1 = f_summary_regression_results('445samples_sailfish', 'chr22', SNPinTF, rsync_flag = FALSE, return_features = TRUE)
+mode_list = modes_list[['peer358']]
+
+
+
+##Step 1. Get the SNPs from the SNPinTF model:
+SNPinTF =mode_list['SNPinTF']
+batch_name = '358samples_regionkeepLow'
+
+return_list1 = f_summary_regression_results(batch_name, 'chr22', SNPinTF, rsync_flag = FALSE, return_features = TRUE)
 head(return_list1$features)
 good_genes = subset(return_list1$performance, performance > 0.05)$gene
 snp_feature_df = subset(return_list1$features, rename == 'SNP')
@@ -36,8 +42,8 @@ head(snp_feature_df)
 
 
 ###Get the SNVs from the rareVar model
-TF_model = 'rm.histone_model.cv.glmnet_add.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.TF_other.info.normCor'
-return_list_tf = f_summary_regression_results('445samples_snpOnly', 'chr22', TF_model, rsync_flag = FALSE, return_features = TRUE)
+TF_model = mode_list['TF']
+return_list_tf = f_summary_regression_results(batch_name, 'chr22', TF_model, rsync_flag = FALSE, return_features = TRUE)
 return_list_tf$control
 head(return_list_tf$features)
 
@@ -47,7 +53,7 @@ chr_str = 'chr22'
 source('r_bedtools.R')
 
 
-batch_name = '445samples_region'
+#batch_name = '445samples_region'
 
 var_loc = read.table(f_p('./data/raw_data/wgs/1kg/maf/%s.loc', chr_str), sep = '\t', header = T)
 colnames(var_loc) = c('chr', 'pos', 'name', 'ref', 'alt')
@@ -157,6 +163,13 @@ tf_features = return_list_tf$features
 tf_features[grep(target_gene, tf_features$name),]
 
 snp_feature_df[grep(target_gene, snp_feature_df$gene),]
+
+
+
+
+
+
+
 
 
 
