@@ -8,6 +8,7 @@ library(dplyr)
 
 
 #TF_model = 'rm.histone_model.cv.glmnet_rm.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZeronoInteract'
+batch_name = '358samples_regionkeepLow_snpOnly'
 batch_name = '358samples_regionkeepLow'
 TF_model = "rm.histone_model.cv.glmnet_rm.penalty_rm.YRI_population.None_new.batch.358samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZero"
 
@@ -76,7 +77,7 @@ flog.info('Table: rare vs SNP in the whole population')
 print(table(var_maf$MAF > 0.05))
 
 
-
+stop()
 
 ##################Confirm the variation impact calcualtion in one individual for one gene##########
 #In this test, I use the genotype of each individual and the variants overlaped in a TF region to recalculate the TF alteration score.
@@ -89,6 +90,9 @@ source('s_gene_data_class.R')
 
 good_predictions = return_list_tf$performance %>% filter(performance > 0.05)
 
+head(var_feature_bed_subset)
+
+target_gene = 'ENSG00000025708.8'
 for( target_gene in good_predictions$gene[1:10] ){    
     f_test_preprocess_for_one_gene(target_gene, chr_str, batch_name, return_list_tf, var_feature_bed_subset, debug = F)
 }
