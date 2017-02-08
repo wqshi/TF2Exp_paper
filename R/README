@@ -4,15 +4,38 @@ s_batch_run.sh: run the regression models on one chromosome.
 The core is to run the s_run_single_gene.sh
 
 
-Compare the selected features in two models: r_linkage_analysis.R
+
+Compare the selected features in two models (TF and SNPinTF): r_linkage_analysis.R
+
 
 
 The GO enrichment and well predict gene analysis: s_summary_regression_results.R
+
 
 
 s_summary_regression_features.R:
 * Most freuqent selected features
 * Compare the features in promoter and enhancer interms of coefficient, distance
 * A fihser stats for the enriched features.
+
+
+s_summary_regression_results.R:
+* Multiple plots of the manuscript.
+
+s_cmp_rnaseq_microarray.R:
+
+
+Mircroarray data preprocess:
+s_merge_800samples_expression.R
+
+
+Tests of preprecessing and check the variant in TF peaks (common variants and rare variants ratio in the peaks):
+s_find_variants_in_key_features.R
+
+
+
+Compare the key feature changes between TF and TF-SNP models.
+s_check_features_of_one_gene.R
+
 
 
