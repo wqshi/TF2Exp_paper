@@ -1,12 +1,15 @@
 Add the guide lines for future self.
 
+How to run the scripts:
+see: s_batch_run_modes_keepLow_358.sh
+p_batch_run.R: core function.
+
+v
 s_batch_run.sh: run the regression models on one chromosome. 
 The core is to run the s_run_single_gene.sh
 
 
-
 Compare the selected features in two models (TF and SNPinTF): r_linkage_analysis.R
-
 
 
 The GO enrichment and well predict gene analysis: s_summary_regression_results.R
