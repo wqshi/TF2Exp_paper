@@ -39,9 +39,15 @@ f_ASSERT<-function(condition,message){
 #my_train = final_train_data
 #target_col = 'gene.RNASEQ'
 #learner_name = 'rf'
-f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid, output_figure_path = NULL, quite=FALSE, penalty_factors = NULL, nfolds=10, rm_high_cor = FALSE, keepZero = TRUE)
+f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tuneGrid, output_figure_path = NULL, quite=FALSE, penalty_factors = NULL, nfolds=10, rm_high_cor = FALSE, keepZero = TRUE, lasso=TRUE, debug = FALSE)
 {
-    
+
+
+    if (f_judge_debug(debug) == TRUE){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+        
+    }
   #cl <- makeCluster(3)
   #registerDoSNOW(cl)
 #    registerDoMC(cores = 2)
@@ -207,23 +213,18 @@ f_caret_regression_return_fit <- function(my_train, target_col, learner_name, tu
         f_learning_curve(non_zero_data, target_col, output_figure_path)
     }
 
-
   }else if(learner_name =='cv.glmnet'){
-                  
-    Fit = f_nest_cv_glmnet(as.matrix(non_zero_data), target_col, nfolds = nfolds,
+      if (lasso == TRUE){
+          alpha_list = c(1)
+      }else{
+          alpha_list = c(0.25, 0.5, 0.75, 1)
+      }
+      
+    Fit = f_nest_cv_glmnet(as.matrix(non_zero_data), alpha_list = alpha_list, target_col, nfolds = nfolds,
                            penalty_factors= penalty_factors[setdiff(colnames(non_zero_data), c(target_col))] ,
                            debug = F)
     Fit$max_performance=Fit$results[rownames(Fit$bestTune), 'Rsquared']
     Fit$num_features = ncol(non_zero_data)
-    
-    glm_coef=as.data.frame(as.matrix(coef(Fit$finalModel, Fit$bestTune$lambda)))
-    colnames(glm_coef) = c('coef')
-    #sig_coef=subset(glm_coef, coef!=0)
-    sig_coef=glm_coef
-    key_features = sig_coef[,'coef']
-    names(key_features) = rownames(sig_coef)
-    Fit$key_features = key_features
-
      
   }else if(learner_name == 'gbm'){
      
@@ -826,17 +827,24 @@ f_add_tf_interactions <- function(data, batch_mode = 'All', hic_thres = NA, debu
 }
 
 
-f_add_related_miRNAs <- function(transcript_id, input_data){
+f_add_related_miRNAs <- function(transcript_id, input_data, debug = FALSE){
+    if (f_judge_debug(debug)){
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+        
+    }
+    
     miRNA_target_table = read.table('./data/raw_data/miRNA/miRNA_ensemble.txt', header = TRUE)
     miRNA_expression = read.table('./data/raw_data/miRNA/GD452.MirnaQuantCount.1.2N.50FN.samplename.resk10.txt', header = TRUE)
     related_miRNAs = subset(miRNA_target_table, ensembl_gene_id == str_split(transcript_id, '[.]')[[1]][1] )$miRNA
     cat('Transcript', transcript_id, '\n')
+    overlapped_samples = (intersect(colnames(miRNA_expression), sample_cols))
     miRNA_expression$TargetID = as.character(miRNA_expression$TargetID)
-    correlated_miRNA_expression = subset(miRNA_expression, TargetID %in% related_miRNAs )[, c('TargetID', sample_cols)]
+    correlated_miRNA_expression = subset(miRNA_expression, TargetID %in% related_miRNAs )[, c('TargetID', overlapped_samples)]
     row.names(correlated_miRNA_expression) = correlated_miRNA_expression$TargetID
     cat('Add miRNA to the training:', as.character(correlated_miRNA_expression$TargetID), '\n')
     correlated_miRNA_expression$TargetID = NULL
-    output_data = cbind(input_data, t(correlated_miRNA_expression[rownames(final_train_data)]))
+    output_data = cbind(input_data[overlapped_samples,], t(correlated_miRNA_expression[overlapped_samples]))
     return (output_data)
 }
 
@@ -1141,7 +1149,7 @@ f_filter_training_features <- function(input_data, batch_name, target_col, debug
     #output_data$population = input_data$population
     #output_data$population = f_ainal_train_data$gender
     if (grepl('filterMinor', batch_name)){
-        output_data[abs(output_data)<0.0001] = 0
+        output_data[abs(output_data)<0.00001] = 0
     }
       
     if (grepl('topTF', batch_name)){
@@ -1226,7 +1234,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
     }
     train_perf = f_get_train_performance(fit, final_train_data, 'gene.RNASEQ')
     output_file = f_p('%s/%s.enet',  results_dir, transcript_id)
-    prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' , alpha=0, lambda=0, CEU =0, CHB =0, JPT=0, YRI=0, stringsAsFactors = F)
+    prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' , alpha=0, lambda=0, CEU =0, CHB =0, JPT=0, YRI=0, hic_num =0, stringsAsFactors = F)
     collected_features = data.frame()
 
     key_features = str_replace_all(names(fit$key_features),'`','')                                   
@@ -1239,22 +1247,27 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 
     features_df$name = paste0(transcript_id, '|' ,rownames(features_df))
     features_df$score = fit$key_features
-    
+    features_df$increase_bind = rowSums(data.matrix(transcript_data[key_features,train_samples]) > 0)
+    features_df$decrease_bind = rowSums(data.matrix(transcript_data[key_features,train_samples]) == 0)
     collected_features = rbind(collected_features, features_df)
     print(subset(collected_features, score != 0))
     write.table(collected_features, file = gzfile(f_p('%s.features.gz', output_file)), sep = '\t', quote = FALSE, row.names =FALSE)
-
-
+    
+    transcript_data[ is.na(transcript_data)] = 0
     ##Predction part####
+    dim(transcript_data)
+    hic_num_df=transcript_data %>% filter(type == 'enhancer') %>% summarise( hic_num = length(unique(hic_fragment_id)))
     
-    
-    
-    ##Performance part    
+    ##Performance part 
     max_performance = fit$max_performance
     RsquaredSD =fit$results[rownames(fit$bestTune), 'RsquaredSD' ]
     print(fit$results)
     cat("\n", 'train_perf', train_perf ,'performance', max_performance, 'SD', RsquaredSD, 'Number of features:', nrow(features_df) )
-    prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(train_perf), as.character(max_performance), as.character(RsquaredSD), as.character(fit$num_features), fit$bestTune[1,1], fit$bestTune[1,2], cor_nums))
+    prediction_performance = rbind(prediction_performance,
+                                   c(as.character(transcript_id), as.character(train_perf),
+                                     as.character(max_performance), as.character(RsquaredSD),
+                                     as.character(fit$num_features),
+                                     fit$bestTune[1,1], fit$bestTune[1,2], cor_nums, hic_num_df[1,1]))
     #print(prediction_performance)
     
     flog.info('Output file: %s', output_file)
@@ -1303,7 +1316,6 @@ f_my_cor<-function(pred, obs){
     return (cor_val)
 }
 
-
 f_test_in_other_pop <- function(fit, final_data, test_samples, train_samples , batch_name, debug = F){
     if (length(test_samples)>1 & !grepl('snpOnly|rareVar', batch_name) ){
         if (f_judge_debug(debug)){
@@ -1311,17 +1323,27 @@ f_test_in_other_pop <- function(fit, final_data, test_samples, train_samples , b
 browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         }
         
-
+        source('~/R/s_ggplot2_theme.R', chdir = T)
         sum(fit$key_features != 0)
         head(fit$key_features)
+
+        input_features = grep('Intercept', names(fit$key_features), value =T, invert = T)
+        if (is.null(fit$scale_mean)){
+            test_data = scale(as.matrix(final_data[test_samples, input_features ]))
+        }else{
+            test_data = scale(as.matrix(final_data[test_samples, input_features ]), center = fit$scale_mean[input_features], scale = fit$scale_sd[input_features])
+        }
+
+        train_scale = scale(final_data[train_samples,input_features])
+        f_ASSERT( all( fit$scale_mean[input_features] == attr(train_scale, 'scale:center')[input_features] ))
         
-        test_data = scale(as.matrix(final_data[test_samples, grep('Intercept', names(fit$key_features), value =T, invert = T) ]))
+        #test_data = (as.matrix(final_data[test_samples, grep('Intercept', names(fit$key_features), value =T, invert = T) ]))
         test_data[is.na(test_data)] = 0
         pred_value = glmnet::predict.cv.glmnet(fit$finalModel, newx = test_data )
         train_pred_value = predict(fit$finalModel, newx = as.matrix(final_data[train_samples, grep('Intercept', names(fit$key_features), value =T, invert = T) ]), type = 'response')
         flog.info( 'Range of predected value %s %s', min(pred_value), max(pred_value) )
         train_value = final_data[train_samples, 'gene.RNASEQ']
-        flog.info( 'Range of train value %s %s', min(train_value), max(train_value) )
+        flog.info( 'Range of train value %s %s', min(train_pred_value), max(train_pred_value) )
         
         class(fit$finalModel)
         pred_cor=cor(pred_value, final_data[test_samples, target_col], method = 'spearman')
@@ -1331,16 +1353,26 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         pred_value = as.data.frame(pred_value)
         pred_value$population = as.character(sample_info[f_convert_test_samples_to_1kg_samples(rownames(pred_value)), c('pop')])
         pred_value$obs = as.vector(scale( final_data[test_samples, target_col]))
-        colnames(pred_value) = c('pred', 'population', 'obs')
+        pred_value$samples = test_samples
+        colnames(pred_value) = c('pred', 'population', 'obs', 'samples')
         
-        ggplot(pred_value, aes(pred, obs)) + geom_point() + facet_wrap(. ~ population, nrow =2)
+        #ggplot(pred_value, aes(pred, obs)) + geom_point() + facet_wrap(. ~ population, nrow =2)
+        p<-ggplot(subset(pred_value, population %in%c('CHB')), aes(pred, obs)) + geom_point() +
+            theme_Publication(12) + xlab('TF2Exp prediction') + ylab('Microarray expression levels') + ggtitle(transcript_id)
         
         #cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = R2(pred, obs, formula =  "traditional", na.rm = FALSE)) %>% as.data.frame
         cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = f_my_cor(pred, obs)) %>% as.data.frame
         rownames(cor_stats)=cor_stats$population
-        return (cor_stats[c('CEU', 'CHB', 'JPT', 'YRI'),'pop_cor'])
+        if(cor_stats['CHB','pop_cor'] > 0.6){
+            ggsave(f_p('%s/%s.enet.external.tiff', results_dir, transcript_id), plot = p)
+        }
+        
+        short_key_features = data.frame(feature = names(fit$key_features), coef = fit$key_features) %>% filter(coef != 0 , feature != '(Intercept)')
+        essentail_data = cbind(pred_value, test_data[, short_key_features$feature])
+        
+        return (list(cor_stats = cor_stats[c('CEU', 'CHB', 'JPT', 'YRI'),'pop_cor'], essentail_data = essentail_data, short_key_features = short_key_features))
     }else{
-        return (rep(NA, times=4))
+        return (list(cor_stats=rep(NA, times=4), short_key_features = NA ))
     }
 }
 
