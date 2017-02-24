@@ -10,12 +10,7 @@ else:
     head_dir="/home/shi/projects/expression_var/data/raw_data/tf/embl_data"
 
 
-
 tf_list = ['RPB2', 'PU1']
-
-loc_tf = 'RBP2'
-
-
 
 tf_peak = {'PU1':'haib-gm12878-pu1.narrowPeak', 'RPB2':'haib-gm12878-pol2.narrowPeak'}
 
@@ -31,7 +26,7 @@ for loc_tf in tf_list:
         individual_id = loc_bam.split('-')[1]
         mkdir_cmd = 'makeTagDirectory %s/%s %s/%s' % (data_dir, individual_id, data_dir, loc_bam)
         my.f_shell_cmd(mkdir_cmd)
-
+        
 
     dir_list = my.f_grep_files_from_dir(data_dir, 'NA.*', path=True)
     my.f_print_list(dir_list)
