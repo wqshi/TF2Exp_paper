@@ -4,7 +4,7 @@ How to run the scripts:
 see: s_batch_run_modes_keepLow_358.sh
 p_batch_run.R: core function.
 
-v
+
 s_batch_run.sh: run the regression models on one chromosome. 
 The core is to run the s_run_single_gene.sh
 
@@ -25,6 +25,8 @@ s_summary_regression_features.R:
 s_summary_regression_results.R:
 * Multiple plots of the manuscript.
 
+
+
 s_cmp_rnaseq_microarray.R:
 
 
@@ -39,6 +41,12 @@ s_find_variants_in_key_features.R
 
 Compare the key feature changes between TF and TF-SNP models.
 s_check_features_of_one_gene.R
+
+
+#External validation using ChIP-seq data.
+s_external_validation_47CEU.R and s_combined_validation_results.R
+#Need to run s_external_validation_47CEU.R for PU1 and CTCF, and then run the second script.
+
 
 
 
