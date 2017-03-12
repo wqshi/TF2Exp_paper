@@ -1,5 +1,3 @@
-
-
 #This file is based on the gene_regulatory_fragment, the output of the p_assign_fragment_id_to_regions.
 
 from pycallgraph import PyCallGraph
@@ -25,6 +23,8 @@ def f_add_features_to_the_regulatory_regions(feature_name, feature_matrix_file, 
     if 'keepLow' not in batch_name:
         logging.info('Remove low frequency features < 5%')
         feature_table.filter_near_zero_columns()
+    else:
+        feature_table.filter_near_zero_columns(cut_threshold = 0) #remove total zero rows.
         
     feature_overlap_data = feature_table.overlap_with_feature_bed(hic_id_file, value_col=3, value_name='hic_fragment_id')
     print sum(feature_overlap_data.duplicated())
@@ -100,13 +100,15 @@ def f_add_hicID_to_SNPs(feature_name, feature_matrix_file, chr_str, hic_id_file,
     feature_table.save_data()
 
 
-def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, gene_regulatory_fragment_file, project_dir, batch_name):
+def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, gene_regulatory_fragment_file, project_dir, batch_name, debug = False):
 
     feature_data_list = []
     shared_individuals = None
-    #import ipdb; ipdb.set_trace()
+    if debug == True:
+        import ipdb; ipdb.set_trace()
     
     for feature_name in feature_path_df.index.values:
+
         logging.info('Feature name: %s', feature_name)
         #Assign the fragment ID to histones
         #feature_matrix_file = '%s/data/histone/%s_removeBlacklist_Log10PvalueThreshold_5_DATA_MATRIX' % (project_dir, feature_name)
@@ -141,23 +143,27 @@ def f_combine_multiple_features_to_genes(feature_path_df, chr_str, hic_id_file, 
         else:
             first_flag = False
             print 'Set1 - Set 2: %s' % ':'.join(list(set(gene_feature_data.columns.values) - set(shared_individuals) ))
-            assert (set(shared_individuals) <= set(gene_feature_data.columns.values).union(set(['HG00101']))), 'Unknown colnames: %s' % ':'.join(list(set(shared_individuals) - set(gene_feature_data.columns.values)))
-    
+            assert (set(shared_individuals) <= set(gene_feature_data.columns.values)), 'Unknown colnames: %s' % ':'.join(list(set(shared_individuals) - set(gene_feature_data.columns.values)))
+        
         sample_cols = my.grep_list('(NA|HG)[0-9]+', shared_individuals)
         sample_cols.sort()
         none_sample_cols = list(set(shared_individuals) - set(sample_cols))
         #feature_data_list_shared = [ dataset[none_sample_cols + sample_cols] for dataset in feature_data_list ]
         #gene_feature_data = gene_feature_data.ix[:, none_sample_cols + sample_cols]
         #import ipdb; ipdb.set_trace()
-        none_sample_cols = ['chr',  'start',   'end', 'transcript_id',   'gene', 'feature',     'feature_start', 'feature_end', 'type', 'pair', 'hic_fragment_id', 'cor']
-        gene_feature_data.drop_duplicates(cols = none_sample_cols, inplace = True)
+        none_sample_cols = ['chr',  'start',   'end', 'transcript_id',   'gene', 'feature',   'feature_start', 'feature_end', 'type', 'pair', 'hic_fragment_id', 'cor']
+        none_sample_cols_dup = ['chr',  'start',   'end', 'transcript_id',   'gene', 'feature',   'feature_start', 'feature_end']
+        gene_feature_data.sort('cor', ascending = False, inplace=True)
+        gene_feature_data.drop_duplicates(cols = none_sample_cols_dup, inplace = True)
         #import ipdb; ipdb.set_trace()
         logging.info('After drop_duplicates and before writing')
         
         if first_flag:
-            gene_feature_data.ix[:,none_sample_cols + sample_cols].to_csv('%s/rnaseq/gene_regulatory_region_feature_profile.%s' % (project_dir, chr_str), sep = '\t', mode = 'w',float_format='%.4e' )
+            #Create the data file
+            gene_feature_data.ix[:,none_sample_cols + sample_cols].to_csv('%s/rnaseq/gene_regulatory_region_feature_profile.%s' % (project_dir, chr_str), sep = '\t', mode = 'w',float_format='%.4e', index = False )
         else:
-            gene_feature_data.ix[:, none_sample_cols + sample_cols].to_csv('%s/rnaseq/gene_regulatory_region_feature_profile.%s' % (project_dir, chr_str), sep = '\t', mode = 'a', header = False,float_format='%.4e' )
+            #Append the file
+            gene_feature_data.ix[:, none_sample_cols + sample_cols].to_csv('%s/rnaseq/gene_regulatory_region_feature_profile.%s' % (project_dir, chr_str), sep = '\t', mode = 'a', header = False,float_format='%.4e', index = False )
 
 
         #logging.debug('Length of the shared columns: %s' % len(shared_individuals))
@@ -202,7 +208,7 @@ class TestDatabaseTable(unittest.TestCase):
             logging.info("Row %s, Combined %s = Gene %s * feature %s" %(i, combined_subset.shape[0], gene_subset.shape[0], feature_subset.shape[0]))
             assert combined_subset.shape[0] == gene_subset.shape[0] * feature_subset.shape[0]
 
-               
+            
 if __name__ == "__main__":
 
     suite = unittest.TestLoader().loadTestsFromTestCase( TestDatabaseTable )
@@ -243,6 +249,11 @@ if __name__ == "__main__":
     print data_path_merge.head()
     print 'data_path_merge size',data_path_merge.shape
     gene_regulatory_fragment_file = '%s/rnaseq/gene_regulatory_fragment.%s'  % (batch_output_dir, chr_str)
-    f_combine_multiple_features_to_genes(data_path_merge, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_output_dir, batch_name)
-    #This is only for the SNPs. Save this for the s_gene_split. 
-    f_add_hicID_to_SNPs('SNP', SNP_path.ix['SNP', 'path'],chr_str, hic_id_file, gene_regulatory_fragment_file, batch_name)
+    f_combine_multiple_features_to_genes(data_path_merge, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_output_dir, batch_name, debug = False)
+    #This is only for the SNPs. Save this for the s_gene_split.
+    
+    if batch_name != 'test':
+        f_add_hicID_to_SNPs('SNP', SNP_path.ix['SNP', 'path'],chr_str, hic_id_file, gene_regulatory_fragment_file, batch_name)
+
+
+
