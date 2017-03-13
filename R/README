@@ -45,8 +45,12 @@ s_check_features_of_one_gene.R
 
 #External validation using ChIP-seq data.
 s_external_validation_47CEU.R and s_combined_validation_results.R
-#Need to run s_external_validation_47CEU.R for PU1 and CTCF, and then run the second script.
+`#Need to run s_external_validation_47CEU.R for PU1 and CTCF, and then run the second script.
+
+#Check the performance improvment due to rare variants.
+s_compare_rare_performance.R:
 
 
-
+#Check the data preparison of rare, snponly, and normal mode
+s_check_snpOnly_rareVar_data.R
 
