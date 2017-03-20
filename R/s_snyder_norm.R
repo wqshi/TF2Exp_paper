@@ -149,6 +149,10 @@ write.table(write_data, file = f_p('%s/GEUVADIS.Gene.DATA_MATRIX', snyder_origin
 head(write_data[1:10, 1:4])
 
 
+stop() #For testing the plot_peer function
+
+
+
 ########Explicitly remove the covariate######
 snyder_norm_dir = f_p('./data/%s_snyder_norm/rnaseq/', batch_size)
 dir.create(snyder_norm_dir, recursive = T)
