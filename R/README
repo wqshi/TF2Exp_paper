@@ -54,3 +54,17 @@ s_compare_rare_performance.R:
 #Check the data preparison of rare, snponly, and normal mode
 s_check_snpOnly_rareVar_data.R
 
+
+
+#Qsub jobs.
+s_qsub_gene_job.sh
+
+
+
+
+#Data nomalization:
+s_gtex_norm.R: normalization for the 358samples_gtex_norm, not used
+s_normalize_and_peer_expression_matrix.R: 462samples_peer, not used
+s_peer_normalization_validation_data.R: normalize the CTCF and PU1 ChIP-seq data.
+s_snyer_norm.R: Main normalization script. Output GEUVADIS.Gene.DATA_MATRIX.peer22 is copied to 358smaples_peer
+
