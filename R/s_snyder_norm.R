@@ -16,6 +16,8 @@ selected_samples$V1
 #batch_size = '445samples'
 batch_size = '358samples'
 batch_name = f_p( '%s_sailfish', batch_size)
+stablize_method = 'VarSqr' #Another way to stablized the variance of gene expression.
+
                                         #batch_name = '54samples'
 batch_output_dir = f_p('./data/%s/', batch_name)
 
@@ -32,6 +34,8 @@ rna_seq_raw_rmZero = f_filter_NA_rm_zeroVar(rna_seq_raw)
 gene = data.frame( gene = row.names(rna_seq_raw_rmZero) )
 write_data = cbind(gene, rna_seq_raw_rmZero)
 
+
+write.table( c(genes=nrow(rna_seq_raw_rmZero), samples = ncol(rna_seq_raw_rmZero)   ), './result/stats/number_of_gene.txt', quote = F)
 write.table(write_data, file = f_p('%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX', batch_output_dir), quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
 
 
@@ -44,9 +48,15 @@ f_check_na_rows(peaksMat_asinh)
 
 library(ggplot2)
 
-p<-qplot(peaksMat[,1], peaksMat_asinh[,1] ) + xlab('Raw gene expression (TPM)') + ylab('Varaince stabilized (asinh(x))')
+stop()
+p<- qplot(peaksMat[,1], (peaksMat_asinh[,1])^2) + xlab('Raw gene expression (TPM)') + ylab('Varaince stabilized (asinh(x))')
 ggsave('./data/r_results/expression_stabilization.tiff', plot = p)
 
+pp<-qplot(peaksMat[,1], (log2(peaksMat[,1])) ) + xlab('Raw gene expression (TPM)') + ylab('Varaince stabilized (log + square)')
+ggsave('./data/r_results/expression_stabilization_log.tiff', plot = pp)
+
+hist((peaksMat_asinh[,1])^2)
+hist((peaksMat_asinh[,1]))
                                         # 2) Standardisation:
 
 rMs = rowMeans(peaksMat_asinh, na.rm=TRUE)
@@ -74,27 +84,6 @@ colnames(peaksMat_asinh_std_qn) = colnames(peaksMat_asinh_std)
 gene = data.frame( gene = row.names(peaksMat_asinh_std_qn) )
 write_data1 = cbind(gene, peaksMat_asinh_std_qn)
                                         #write.table(write_data1, file = './data/462samples_sailfish_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
-
-
-
-
-                                        
-
-PEER_plotModel <- function(model){
-    par(mfrow=c(2,1))
-    bounds = PEER_getBounds(model)
-    vars = PEER_getResidualVars(model)
-    par(mar=c(5,4,4,5)+.1)
-    plot(bounds, type="l", col="red", lwd=2, xlab="Iterations", ylab="Lower bound")
-    par(new=TRUE)
-    plot(vars,,type="l",col="blue",xaxt="n",yaxt="n",xlab="",ylab="")
-    axis(4)
-    mtext("Residual variance",side=4,line=3)
-    legend("right",col=c("red","blue"),lty=1,legend=c("Lower bound","Residual variance"))
-    alpha = PEER_getAlpha(model)
-    plot(alpha,xlab="Factors",ylab="Inverse variance of factor weights", type="b", col="blue", lwd=4, xaxp=c(1,length(alpha), length(alpha)-1))
-}
-
 
 
 
@@ -132,12 +121,12 @@ peer_range = c(10)
 for (peerFactor in peer_range){
     model = PEER()
     PEER_setPhenoMean(model,t(as.matrix(peaksMat_asinh_std_qn)))
-    PEER_setAdd_mean(model, TRUE)
+    PEER_setAdd_mean(model, FALSE)
     PEER_setNk(model,peerFactor)
     PEER_setNmax_iterations(model, 1000)
     PEER_update(model)
 
-    tiff(filename = f_p('%s/peer%s.tif', snyder_original_dir, peerFactor))
+    tiff(filename = f_p('%s/peer_no_cov%s.tif', snyder_original_dir, peerFactor))
     PEER_plotModel(model)
     dev.off()
 
@@ -164,7 +153,7 @@ head(write_data[1:10, 1:4])
 snyder_norm_dir = f_p('./data/%s_snyder_norm/rnaseq/', batch_size)
 dir.create(snyder_norm_dir, recursive = T)
 
-peer_range = 1:30
+peer_range = seq(from = 40, to =60, by = 10)
 
 for (peerFactor in peer_range){
     flog.info('Hidden factor %s', peerFactor)
@@ -201,7 +190,7 @@ for (peerFactor in peer_range){
     PEER_update(model)
 
 
-    tiff(filename = f_p('%s/peer.tif', snyder_norm_dir))
+    tiff(filename = f_p('%s/peer%s.tif', snyder_norm_dir, peerFactor), width = 1080, height = 1080)
     PEER_plotModel(model)
     dev.off()
 
