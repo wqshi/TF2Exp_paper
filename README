@@ -1,0 +1,8 @@
+
+
+
+Predicting the impact of altered TF binding on gene expression based on cis-regulatory variants
+
+
+The scripts in python directory are used to process the raw data to training data.
+The scripts in the R directory are used to train regression models and analyze models features.
