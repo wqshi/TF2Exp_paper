@@ -1,0 +1,17 @@
+#Preprocess the data for model training, go to clustdell, and run the following cmd. It would submit the jobs to clustdell.
+sh s_run_whole_pipeline_qsub.sh 358samples_regionkeepLow
+
+
+Prepare the vcf input for the deepsea:
+p_extract_sample_vcf_file_in_regions.py: subset the 1000 genome variants into the ENCODE regions.
+Then split vcf file for each sample.
+p_deepsea_merge_individual_vcfs.py: merge the individuals vcfs into single one, for the input of deepsea. To save time.
+The merged file would be different from the previous step. Now each line is only for one genotype and multiple lines
+for the same loci. The previous one just put all the genotypes in one line.
+
+Run the deepsea.
+s_deepsea_split_impact_to_individuals.R: split the deepsea impact into each individuals.
+
+For the personal genome part:
+
+
