@@ -1,3 +1,4 @@
+
 #This script is for the feature analysis part.
 source('~/R/s_ggplot2_theme.R')
 source('s_summary_fun.R')
@@ -7,6 +8,7 @@ source('r_feature_analysis_fun.R')
 library(optparse)
 library(dplyr)
 library(xtable)
+library(tidyr)
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
     make_option(c("--collection"),      type="character", default='addPenalty', help="The parameter based name", metavar="character"),
@@ -26,8 +28,11 @@ if (is.null(opt$batch_name)){
     #batch_name = '462samples_log_quantile'
     loc_batch_name = '358samples_regionkeepLow'
     ##chr_str = 'chr22'
-    chr_num_list = c(10, 15, 22)
-    collection_name = 'peer358'
+    chr_num_list = 1:22
+    collection_name = 'peer358corRmdup'
+    #collection_name = 'elastic'
+    #collection_name = 'peer358cor'
+    #collection_name = 'rmZero'
     #collection_name = 'addPenalty'
 }else{
     loc_batch_name = opt$batch_name
@@ -40,116 +45,148 @@ if (is.null(opt$batch_name)){
 }
 
 threshold = 0.05
+source('./s_test_cat.R')
 
-#####Count the feature categories######
-mode_list = modes_list[[collection_name]]
+
+
+#######################1 Prepare the feature data###############################
+mode_list = modes_list[[collection_name]][c('TF', 'SNP')]
 mode_list = f_create_new_mode_list(mode_list, 'trad', 'cor')
+read_flag = FALSE
+results_dir = f_p('./data/%s/rnaseq/results/%s/', loc_batch_name, collection_name)
+figure_dir = f_p('%s/figures/', results_dir)
+dir.create(figure_dir)
+output_file = f_p('%s/feature_results.txt', results_dir)
+f_write_paper_results('=====Features numbers======', data = date(), file = output_file)
 
-mode_list
 
-
-#' #Check the sign of the coefficient in promoter and enhancer regions
-features_stats = f_merge_selected_features(loc_batch_name, paste0('chr', chr_num_list), mode_list['TF'], debug = F)
+if (read_flag == TRUE){
+    features_stats = f_merge_selected_features(loc_batch_name, paste0('chr', chr_num_list), mode_list['TF'], debug = F)
+    save(features_stats, file = f_p('%s/features_stats', results_dir))
+}else{
+    load(file = f_p('%s/features_stats', results_dir))
+}
 
 features_merge = subset(features_stats$features, !is.na(feature_start))
-
 features_merge$tf_rename = str_replace(features_merge$rename, '(enhancer|promoter)', '')
 table(features_merge$tf_rename)
-
-
-
-
-
-well_genes = features_stats$performances %>% filter(performance > 0.05) %>% select(gene)
 features_merge$location = 'promoter'
 features_merge$location[ grepl('enhancer', features_merge$rename) ] = 'enhancer'
 
-well_features_merge = features_merge %>% filter(gene %in% well_genes$gene)
+features_merge$tf_rename[features_merge$tf_rename == 'PU'] = 'PU.1'
+features_merge$tf_rename[features_merge$tf_rename == 'USF'] = 'USF.1'
+
+sample_performance_merge = read.table(file = f_p('%s/sample_performance_merge', results_dir), header = T)
+
+
+
+
+
+#################: Compare the coefficient in promoter and enhancer regions#############
+str(features_stats, max.level = 1)
+
+well_genes = features_stats$performances %>% filter(performance > 0.05) %>% dplyr::select(gene)
+
+well_features_merge = features_merge %>% filter(gene %in% well_genes$gene, abs(score) > 1e-6)
 table(well_features_merge$location)
 
 head(well_features_merge)
 
+well_features_merge %>% group_by(gene, tf_rename, feature_start, feature_end) %>% nrow()
+hist(well_features_merge$score, breaks= 100)
+
+well_features_merge %>% filter(abs(score) < 1e-4) %>% nrow()
+
+#Test the coef difference in promoter and distal regions.
 promoter_coef = subset(well_features_merge, location == 'promoter')$score
 enhancer_coef = subset(well_features_merge, location == 'enhancer')$score
-wilcox_test = wilcox.test( promoter_coef , enhancer_coef)
+wilcox_test = wilcox.test( abs(promoter_coef) , abs(enhancer_coef), alternative = 'greater')
+
+f_write_paper_results('Test abs(promoter_coef) > abs(enhancer_coef), p-value:', wilcox_test$p.value, output_file)
+f_write_paper_results('Mean promoter coef:', mean(abs(promoter_coef)), output_file)
+f_write_paper_results('Mean enhancer coef:', mean(abs(enhancer_coef)), output_file)
+f_write_paper_results('Number of loction:', table(well_features_merge$location), output_file)
 
 
-
-##Output: Final plot to compare the coeficients in promoters and enhancers.
-coef_box_plot<- ggplot(well_features_merge, aes(location, score )) + geom_boxplot(notch = TRUE) +
-    ylab('Feature coefficients') + xlab('Feature location')+ annotate("text", label = f_p('p-value: %.1e\n enhacer mean %.2f\n promoter mean %.2f ',
-                                                                   wilcox_test$p.value, mean(enhancer_coef), mean(promoter_coef) ),
-                 x = 1.2, y = 0.4, size = 6, colour = "red") + theme_Publication(base_size = 12)
-
-
-ggplot(well_features_merge, aes(location, score )) + geom_boxplot(notch = TRUE) +
-    ggtitle('Feature coefficients') + annotate("text", label = f_p('p-value: %.1e\n enhacer mean %.2f\n promoter mean %.2f ',
-                                                                   wilcox_test$p.value, mean(enhancer_coef), mean(promoter_coef) ),
-                 x = 1.2, y = 0.4, size = 6, colour = "red")
-
-
-ggplot(well_features_merge, aes(score, ..density.., color = location )) + geom_freqpoly() +
-    ggtitle('Feature coefficients') + annotate("text", label = f_p('p-value: %.1e\n enhacer mean %.2f\n promoter mean %.2f ',
-                                                                   wilcox_test$p.value, mean(enhancer_coef), mean(promoter_coef) ),
-                 x = -0.4, y = 12, size = 6, colour = "red")
-
-
-
-
-
-
-
-
-
-
-############ Functional role of TF binding towards gene regulation#####################
-feature_summary_stats <- features_merge %>% group_by(rename) %>% dplyr::summarise(positive = sum(score > 0), total = length(score), pos_ratio = positive/total, mean_score = mean(score)) %>%
-    arrange(desc(pos_ratio)) %>% filter(total > 8) %>% arrange(pos_ratio)
+#Final plot to compare the coeficients in promoters and enhancers.
+well_features_merge$location2 = 'Distal'
+well_features_merge[well_features_merge$location == 'promoter', 'location2'] = 'Promoter'
 head(well_features_merge)
 
-#tf_stats = well_features_merge %>% group_by(rename) %>% dplyr::summarise(mean_score = mean(score))
-tf_stats = feature_summary_stats
+
+coef_box_plot<- ggplot(well_features_merge, aes(location2, abs(score) )) + geom_boxplot() +
+    ylab('Absolute feature effect sizes') + xlab('Feature location')+ annotate("text", label = f_p('P-value: %.1e',
+                                                                   wilcox_test$p.value),
+                 x = 1.5, y = 0.7) + theme_Publication(base_size = 12) +
+    geom_hline(yintercept=0, linetype = '1F')
+
+plot(coef_box_plot)
+ggsave(f_p('%s/feature_coef_boxplot.tiff', figure_dir), plot = coef_box_plot)
+
+hist(well_features_merge$score, breaks = 100)
+
+
+
+
+
+
+
+############### Functional role of TF binding towards gene regulation#####################
+######Positive ratio in proximal and distal regions for each TF###########
+
+##Prepare the tf-based data
+tf_stats <- features_merge %>% group_by(rename) %>% dplyr::summarise(positive = sum(score > 0), total = length(score), pos_ratio = positive/total, mean_score = mean(score)) %>%
+    arrange(desc(pos_ratio)) %>% filter(total > 10) %>% arrange(pos_ratio)
 tf_stats$location = 'promoter'
 tf_stats$location[grepl('enhancer',tf_stats$rename)] = 'enhancer'
 tf_stats$tf = str_replace(tf_stats$rename, 'promoter|enhancer', '')
 
 
-
-#' Output: Top 3 negative and Top 3 positive
+## Top 3 negative and Top 3 positive
+f_write_paper_results('Top 5 negative TFs', tf_stats[1:5,], output_file )
+f_write_paper_results('Top 5 positive TFs', tf_stats[(nrow(tf_stats) -5):nrow(tf_stats),], output_file )
 head(tf_stats, n = 5)
 tail(tf_stats, n = 5)
 
 
-
-
-#colnames(collect_table_write_sort) = c('Feature', 'Location', "Selected",  "Unselected",  "P-value", "Odds ratio")
-#print.xtable(xtable(collect_table_write_sort), type = 'html', './result/figures/feature.html', include.rownames=FALSE)
-
-
 #Number of TFs show positive coefficient.
-feature_summary_stats %>% summarise( n = sum(pos_ratio > 0.5)/length(pos_ratio) )
-
-write.table(format(tf_stats, digits = 3), file = './result/stats/pos_ratio.txt', quote = F, row.names = F)
-
+tf_stats %>% summarise( n = sum(pos_ratio > 0.5)/length(pos_ratio) )
+write.table(format(tf_stats, digits = 3), file = f_p('./%s/pos_ratio.txt', results_dir), quote = F, row.names = F)
 
 
-library(tidyr)
+plot_data <- tf_stats %>% dplyr::select(tf, location, pos_ratio) %>% spread(key = location, value = pos_ratio) %>% as.data.frame
+label_data<-plot_data[complete.cases(plot_data),]
+rownames(label_data) = label_data$tf
+extreme_points <-  label_data %>% gather(new, new2, enhancer:promoter) %>% arrange(-new2) %>% filter(row_number() <= 5 | row_number() >= n() - 4)
 
-head(tf_stats)
+label_data2 = f_adjust_lable_positions( label_data[extreme_points$tf,] , x_lab = 'promoter', y_lab = 'enhancer', rep.fact = 30,  rep.dist.lmt = 10,
+                                      attr.fact = 0.3, iter.max = 20000)
+head(label_data2,n =15)
+down_tfs = c('SMC3', 'STAT1', 'BCLAF1')
+label_data2[down_tfs, 'enhancer'] = label_data2[down_tfs, 'enhancer'] - 0.04
+label_data2['BCLAF1', 'promoter'] = label_data2['BCLAF1', 'promoter'] + 0.03
+point_color = 'black'
 
-tf_stats$pos_ratio
+pos_ratio_plot <- ggplot(plot_data, aes(promoter, enhancer)) + geom_point(color = point_color) + geom_abline(alpha = 0.3) +
+    geom_text(data = label_data2, aes(x = promoter, y = enhancer + 0.02, label = tf)) + xlim(c(0.15, 0.95)) + ylim(c(0.15, 0.95)) +
+    xlab('Positive ratio in promoters') + ylab('Positive ratio in distal regulatory regions') + theme_Publication(12)
+pos_ratio_plot
 
-plot_data <- tf_stats %>% select(tf, location, pos_ratio) %>% spread(key = location, value = pos_ratio)
-
-head(plot_data)
-pos_ratio_plot <- ggplot(plot_data, aes(promoter, enhancer)) + geom_point() + geom_abline() +
-    geom_text(data = plot_data[complete.cases(plot_data),], aes(x = promoter, y = enhancer + 0.02, label = tf)) +
-    xlab('Positive ratio in promoters') + ylab('Positive ratio in enhancer') + theme_Publication(12)
-
-plot(pos_ratio_plot)
+#Test: TF in promoter are more positive than distal regions
+cor.test(plot_data$promoter, plot_data$enhancer, 'g')
+promoter_test = wilcox.test(plot_data$promoter, plot_data$enhancer, 'g')
+print(promoter_test)
+#Not selected in the manuscript. As the role of TF is complex determined by context.
+###################################################################################
 
 
 
+
+
+
+
+
+#####################Feature distance to gene start positions######################################
 #' #Calculate the mean distance of the features in promter and enhancer regions.
 tf_bed = read.table('./data/358samples_regionkeepLow/rnaseq/transcript_data.bed', header = T)
 gene_bed = tf_bed[,1:6]
@@ -161,39 +198,80 @@ head(gene_bed)
 features_merge$tss = gene_bed[features_merge$gene,'tss']
 features_merge$feature_dis = features_merge$feature_start - features_merge$tss
 
-head(features_merge)
-
-ggplot(features_merge, aes(log10(abs(feature_dis)), color = location)) + geom_density()
-
 features_merge$upstream = 'Upstream'
 features_merge$upstream[features_merge$feature_dis > 0] = 'Downstream'
 
 ##Todo: Add the overall background
-ggplot(features_merge, aes(log10(abs(feature_dis)), color = location)) + geom_density() + facet_wrap(~upstream, nrow =2)
+#ggplot(features_merge, aes(log10(abs(feature_dis)), color = location)) + geom_density() + facet_wrap(~upstream, nrow =2)
 
 features_merge %>% group_by(location) %>% dplyr::summarise(mean_dis = mean(abs(feature_dis)))
 
 features_merge$positive = 'positive'
 features_merge$positive[features_merge$score < 0] = 'negative'
-ggplot(features_merge, aes(abs(score), abs(feature_dis))) + geom_point()
+head(features_merge)
+features_merge$location_rename = 'Promoter'
+features_merge$location_rename[features_merge$location == 'enhancer'] = 'Distal regulatory regions'
+
+features_merge$location_rename = factor(features_merge$location_rename, levels = c('Promoter', 'Distal regulatory regions'))
+
+head(features_merge)
+table(features_merge$location)
+
+#add fake line to balance the x distribution in promoter
+add_fake_line<-features_merge %>% filter(location == 'promoter', feature_dis > 29000)
+add_fake_line$feature_dis = -27000
+add_fake_line$score = 0
+
+
+
+distal_plot<-ggplot(features_merge, aes(feature_dis, score)) + geom_point(alpha = 0.1, color=point_color) + facet_wrap(~location_rename, nrow = 2, scales = 'free_x') +
+    theme_Publication(12) + xlab('Feature distance to the gene start site') + ylab('Feature effect size')
 
 
 ##Output
 #distal_plot <- ggplot(features_merge, aes(sign(feature_dis)*log10(abs(feature_dis)), color = location)) + geom_freqpoly() + theme_Publication(12)
 
-ggplot(features_merge, aes(feature_dis)) + stat_ecdf(geom = "step") + theme_Publication(12) + facet_wrap(~location, nrow =2, scales = 'free_x')
-distal_plot <- ggplot(features_merge, aes(feature_dis)) + geom_histogram() + theme_Publication(12) + facet_wrap(~location, nrow =2, scales = 'free_x')
-
-library(gridExtra)
-feature_coef_plot <- arrangeGrob( pos_ratio_plot, distal_plot, ncol = 2)
-
-ggsave('./result/figures/feature_coef.tiff', plot = feature_coef_plot, width = 14, height = 7)
-
 positive_location_test=fisher.test( as.matrix(table(features_merge$positive, features_merge$upstream)))
 
+#features_merge_subset <- features_merge %>% filter( ! (feature_dis > 20000 & location_rename == 'Promoter'))
+distal_plot2 <-ggplot(features_merge, aes(feature_dis)) + geom_density() + theme_Publication(12) + facet_wrap(~location_rename, nrow =2, scales = 'free') +
+    xlab('Feature distance to the gene start site')
 
 
-#Get the top genes, and get the features.
+
+library(gridExtra)
+tiff(f_p('./%s/feature_coef.tiff', figure_dir), res = 310, width = 10, height = 5, units='in')
+#feature_coef_plot <- arrangeGrob(distal_plot, pos_ratio_plot, ncol = 2)
+grid.arrange(arrangeGrob(distal_plot, pos_ratio_plot, ncol = 2))
+grid.text(label = '(A)',x=unit(0.02, "npc"), y=unit(0.98, "npc"), gp=gpar(fontsize=12))
+grid.text(label = '(B)',x=unit(0.52, "npc"), y=unit(0.98, "npc"), gp=gpar(fontsize=12))
+dev.off()
+
+
+###Output:
+ggsave(f_p('%s/feature_coef_promoter_enhaner.tiff', figure_dir), plot = distal_plot, width =7, height = 7)
+f_write_paper_results( 'Positive ratio for features in  promoters and distal regulatory regions:',
+                      well_features_merge %>% group_by(location) %>% dplyr::summarise( sum(score > 0)/length(score)),
+                      output_file)
+
+#######################################################
+
+
+
+
+
+##############Negative features###########################
+features_merge$role = 'positive'
+features_merge$role[features_merge$score < 0] = 'negative'
+
+ggplot(subset(features_merge, location == 'promoter' ), aes(abs(feature_dis), color = role)) + geom_density()
+
+#wilcox.test( abs( subset(features_merge, location ==) ) )
+
+##########################################
+
+
+########Get the top genes, and get the features.################
 performance_df = features_stats$performances
 performance_df_sorted = f_sort_by_col(performance_df, 'performance', TRUE)
 head(performance_df_sorted)
@@ -203,29 +281,119 @@ head(feature_df)
 top_gene_features = feature_df %>% filter(gene == performance_df_sorted$gene[1])
 
 top_gene_features
+######################################################
 
 
-stop()
 
-#################Section: Stats of the selected features.################
-collect_table = f_feature_enrichment( loc_batch_name, c('chr22', 'chr10', 'chr15'), mode_list['TF'], debug = TRUE)
+
+
+
+
+
+
+
+
+
+
+################Overlap with the FANTOM5 enhancers################################
+source('r_bedtools.R')
+fantom5_cor = read.table('./data/raw_data/fantom5/hg19_enhancer_promoter_correlations_distances_cell_type.txt', header = T)
+f5_promoter <- fantom5_cor %>% dplyr::select(promoter, enhancer) %>% separate(promoter, into = c('chr', 'start', 'end', 'strand'))
+
+tss_df = read.table('./data/raw_data/rnaseq/transcript_loc.bed', header = T, sep = '\t')
+
+overlapped_bed = f_bedtools(f5_promoter[,c('chr', 'start', 'end', 'enhancer')], tss_df[,c('chr', 'start', 'end', 'gene')], fun = 'intersect', paras = '-wao', debug = F)
+
+head(overlapped_bed)
+
+enhancer_gene <- overlapped_bed %>% dplyr::rename( enhancer = V4, gene = V8) %>% dplyr::select(enhancer, gene) %>%
+     tidyr::separate(enhancer, into = c('chr', 'start', 'end')) %>% distinct() %>% arrange(gene)
+
+enhancer_gene_filter = enhancer_gene %>% filter(gene != '.')
+
+
+
+##Overlap selected features of each gene with the enhancer-gene pairs/ compare with unselected features.
+unselected_features = features_stats$merge_control
+selected_features = features_stats$features
+
+
+good_performance_gene <- features_stats$performances %>% filter(performance > 0.05)
+
+selected_bed = f_extract_bed_from_features(selected_features) 
+control_bed = f_extract_bed_from_features(unselected_features)
+
+good_gene_list = str_replace(good_performance_gene$gene, '[.][0-9]*', '')
+real_overlap = f_overlap_tf_features_with_f5_enhancers(selected_bed, enhancer_gene_filter, good_gene_list)
+control_overlap = f_overlap_tf_features_with_f5_enhancers(control_bed, enhancer_gene_filter, good_gene_list)
+
+fisher_table = rbind(table(real_overlap$f5_hit),
+table(control_overlap$f5_hit))[,c(2,1)]
+
+colnames(fisher_table) = c('overlap_F5', 'no_overlap')
+rownames(fisher_table) = c('selected', 'unselected')
+
+
+##Output
+flog.info('Fisher test results:')
+print(fisher_table)
+fisher_test=fisher.test(fisher_table)
+fisher_test
+
+f_write_paper_results('Fantom 5 Fisher table', fisher_table, output_file)
+f_write_paper_results('Fisher p-value', fisher_test$p.value, output_file, scientific = T)
+f_write_paper_results('Percentage of selected features overlapped by F5 enhancers', fisher_table[1,1]/sum(fisher_table[1,]), output_file, scientific = T)
+
+######################Fantom 5 part done##############################
+
+
+
+
+
+
+
+#######################Count the number of selected features.####################
+if (read_flag == TRUE){
+    collect_table = f_feature_enrichment( loc_batch_name, paste0('chr', 1:22), mode_list['TF'], debug = F)
+    write.table(collect_table, file = f_p('%s/feature_number_table', results_dir), quote = F, sep = '\t', row.names = F)
+}else{
+    collect_table = read.table(file = f_p('%s/feature_number_table', results_dir), sep = '\t', header = TRUE)
+}
 #f_feature_enrichment( loc_batch_name, c('chr22'), mode_list['All'], debug = TRUE)
 #f_feature_enrichment( loc_batch_name, c('chr22', 'chr2', 'chr10'), mode_list['TF'])
 
 head(collect_table)
 colnames(collect_table) = c('feature', 'selected', 'unselected', 'p-value', 'Odds_ratio')
-
+options(digits=10)
 collect_table$location = 'Enhancer'
 collect_table$location[grep('promoter', collect_table$feature,)]  = 'Promoter'
 collect_table$location[grep('P_E', collect_table$feature,)]  = 'P_E-Interaction'
 collect_table$location[grep('TFoverlap', collect_table$feature,)]  = 'TF-interaction'
 collect_table$feature = str_replace(collect_table$feature, '(promoter|enhancer|P_E|TFoverlap[.])', '')
 table(collect_table$location)
+
+
+fisher_table <- collect_table %>% group_by(location) %>% dplyr::summarise(selected = sum(selected), unselected = sum(unselected))
+f_write_paper_results('Test the depletion of distal features compared with promoter features',fisher_table, output_file)
+distal_deplation_test = fisher.test(fisher_table[,2:3])
+f_write_paper_results('Fisher test pvalue', f_p('%.4e (0 mean <2.2e-16), coef %s', distal_deplation_test$p.value, distal_deplation_test$estimate ), output_file)
+
 collect_table_write = collect_table
-collect_table_write['p-value'] = format(as.numeric(collect_table[,'p-value']), digits = 2)
-collect_table_write['Odds_ratio'] = format(as.numeric(collect_table[,'Odds_ratio']), digits = 2)
+collect_table_write['p-value'] = as.numeric(format(as.numeric(collect_table[,'p-value']), digits = 4, scientific=T))
+
+str(collect_table_write)
+
+
+collect_table_write['Odds_ratio'] = format(as.numeric(collect_table[,'Odds_ratio']), digits = 2, scientific = T)
 head(collect_table_write)
+
 colnames(collect_table_write)
+
+str(collect_table_write)
+
+
+
+head(collect_table_write)
 
 collect_table_write = collect_table_write[,c('feature', 'location', "selected",  "unselected",  "p-value", "Odds_ratio")]
 
@@ -236,16 +404,31 @@ collect_table_write_sort = f_sort_by_col(collect_table_write, 'selected', TRUE)
 #install.packages('gdtools')
 #f_table_to_word(collect_table_write)
 
-collect_table_write_sort
+head(collect_table_write_sort)
 
-View(subset(collect_table_write_sort))
+
+
+plot_data = collect_table_write_sort %>% group_by(feature) %>% dplyr::summarise( tf_selected = sum(selected) ) %>%
+    mutate( pos = cumsum(tf_selected) - tf_selected/2 ) %>% arrange(-tf_selected)
+
+head(plot_data, n=20)
+
+plot_data %>% filter(feature == 'PU')
+
+#Pie plot
+#ggplot(data=plot_data, aes(x=factor(1), y=tf_selected, fill=factor(feature))) +
+#  geom_bar(stat="identity") +
+#  geom_text(aes(x= factor(1), y=pos, label = feature), size=10) + guides(fill=FALSE) +  # note y = pos
+#  coord_polar(theta = "y")
+
+
 #install.packages('xtable')
 library('xtable')
 
 colnames(collect_table_write_sort) = c('Feature', 'Location', "Selected",  "Unselected",  "P-value", "Odds ratio")
 print.xtable(xtable(collect_table_write_sort), type = 'html', './result/figures/feature.html', include.rownames=FALSE)
-
 collect_table_write %>% filter(location == 'Promoter')
+
 
 
 ##Correlation between number of peaks and selected features.
@@ -259,14 +442,77 @@ f_feature_count_correlation <- function(input_table, peak_count){
     cor.test(input_table$selected,   peak_count[input_table$feature,'count'])
 }
 
+
+
+
+
+collect_table_tf <- collect_table_write %>% group_by(feature) %>% dplyr::summarise( sum_select = sum(selected) ) %>% arrange(-sum_select)
+collect_table_tf$selected = collect_table_tf$sum_select
+head(collect_table_tf)
+
+
 #Features peak count and selected number of features.
-f_feature_count_correlation(subset(collect_table_write, location == 'Promoter'), peak_count)
-f_feature_count_correlation(subset(collect_table_write, location == 'Enhancer'), peak_count)
+collect_table_tf$feature = as.character(collect_table_tf$feature)
+test_obj = f_feature_count_correlation(collect_table_tf, peak_count)
+f_write_paper_results('Correlation between features peak count and selected number of features.', f_p('P-value: %.4e, coefficient: %s', f_get_exact_pvalue(test_obj), test_obj$estimate), output_file)
 
 
-#The median odds ratio:
-sum(collect_table_write_sort[1:10,'Selected'])/sum(collect_table_write_sort[,'Selected'])
-collect_table %>% group_by(location) %>% dplyr::summarise(mean_odds = median(as.numeric(Odds_ratio)))
+
+##Paper: Top 35 TFs are sufficient
+sum(collect_table_tf[1:35,'sum_select'])/sum(collect_table_tf[,'sum_select'])
+sum(collect_table_tf[1:5,'sum_select'])/sum(collect_table_tf[,'sum_select'])
+f_write_paper_results('First five features account for ', f_p('%s of selected features', sum(collect_table_tf[1:5,'sum_select'])/sum(collect_table_tf[,'sum_select'])), file = output_file)
+
+
+head(collect_table_tf)
+
+collect_table_tf$feature = factor(collect_table_tf$feature, levels = collect_table_tf$feature )
+
+collect_table_tf_new = collect_table_tf %>% mutate( cum = cumsum(selected) )
+
+head(features_merge)
+
+features_merge$tf_rename = str_replace(features_merge$tf_rename, 'DNASE', 'DHS')
+
+top_feature_data <-  features_merge %>% group_by(tf_rename) %>% dplyr::summarise( TF = length(tf_rename), Gene = length(unique(gene)) ) %>% top_n(n = 10) %>% gather(group, value,-tf_rename)
+
+head(top_feature_data)
+
+tf_ranked <-top_feature_data %>% filter(group == 'TF') %>% arrange(-value) 
+
+
+top_feature_data$group = factor(top_feature_data$group, levels=c('TF', 'Gene'))
+
+top_feature_data$tf_rename = factor(top_feature_data$tf_rename, tf_ranked$tf_rename)
+
+levels(top_feature_data$group)
+levels(top_feature_data$group) <- c('TF count', 'Gene count')
+
+tail(top_feature_data)
+
+
+length(well_genes)
+
+well_genes
+
+f_write_paper_results('At lease % genes has one DHS', top_feature_data %>% filter(tf_rename == 'DHS', group == 'Gene count' )%>% summarise(value/nrow(well_genes)), output_file)
+
+
+
+
+feature_freq_plot <- 
+    ggplot(data=top_feature_data, aes(x=tf_rename, y=value, fill = group)) + #geom_line(aes(y = cum, group =1)) +
+  geom_bar(stat="identity", position = 'dodge') + theme_Publication(12) +  theme(axis.text.x = element_text(angle = 90, size = 8,hjust = 1, vjust = 0)) +
+    xlab('Features') + ylab('Times selected by TF2Exp models') + theme(legend.position = c(0.8,0.8), legend.direction = 'vertical') 
+
+feature_freq_plot
+ggsave(f_p('%s/feature_freq.tiff', figure_dir), plot = feature_freq_plot, width = 7, height = 4.5)
+ggsave(f_p('%s/feature_freq2.tiff', figure_dir), plot = feature_freq_plot, width = 7, height = 7)
+
+
+
+
+##################END of the feature count section########################
 
 
 if (FALSE){
@@ -369,53 +615,6 @@ feature_table[grepl(best_gene, feature_table$name),]
 
 
 
-#Step###########Overlap with the FANTOM5 enhancers#############
-library(dplyr)
-library(tidyr)
-source('r_bedtools.R')
 
 
-##Read f5 enhancer-promoter, transfer it to enhancer-gene_id pairs.
-fantom5_cor = read.table('./data/raw_data/fantom5/hg19_enhancer_promoter_correlations_distances_cell_type.txt', header = T)
-f5_promoter <- fantom5_cor %>% select(promoter, enhancer) %>% separate(promoter, into = c('chr', 'start', 'end', 'strand'))
-tss_df = read.table('./data/raw_data/rnaseq/transcript_loc.bed', header = T, sep = '\t')
-
-overlapped_bed = f_bedtools(f5_promoter[,c('chr', 'start', 'end', 'enhancer')], tss_df[,c('chr', 'start', 'end', 'gene')], fun = 'intersect', paras = '-wao')
-enhancer_gene <- overlapped_bed %>% dplyr::rename( enhancer = V4, gene = V8) %>% dplyr::select(enhancer, gene) %>%
-     tidyr::separate(enhancer, into = c('chr', 'start', 'end')) %>% distinct() %>% arrange(gene)
-
-enhancer_gene_filter = enhancer_gene %>% filter(gene != '.')
-
-
-
-##Overlap selected features of each gene with the enhancer-gene pairs/ compare with unselected features.
-f_overlap_tf_features_with_f5_enhancers <- function(feature_bed, enhancer_gene_filter, good_gene_list){
-    feature_enhancer_bed = feature_bed[grepl('enhancer', feature_bed$name), ]
-    dim(feature_enhancer_bed)
-    head(enhancer_gene_filter)
-
-    overlap_df = f_bedtools(feature_enhancer_bed, enhancer_gene_filter, paras = '-wao')
-    head(overlap_df)
-    overlap_df_sub = as.data.frame(overlap_df)[c('V1', 'V2', 'V3', 'V4', 'V8')]
-
-    head(overlap_df_sub)
-    colnames(overlap_df_sub) =c('chr','start', 'end', 'name', 'matched_gene' )
-    overlap_df_gene  = overlap_df_sub %>% mutate( gene = str_replace(name, '[.].*', '') ) %>% filter( matched_gene == gene | matched_gene == '.', gene %in% good_gene_list)
-
-    print(table(overlap_df_gene$gene == overlap_df_gene$matched_gene))
-    return (overlap_df_gene)
-}
-
-unselected_features = features_stats$merge_control
-selected_features = features_stats$features
-
-
-good_performance_gene <- features_stats$performances %>% filter(performance > 0.05)
-
-selected_bed = f_extract_bed_from_features(selected_features) 
-control_bed = f_extract_bed_from_features(unselected_features)
-
-good_gene_list = str_replace(good_performance_gene$gene, '[.][0-9]*', '')
-real_overlap = f_overlap_tf_features_with_f5_enhancers(selected_bed, enhancer_gene_filter, good_gene_list)
-control_overlap = f_overlap_tf_features_with_f5_enhancers(control_bed, enhancer_gene_filter, good_gene_list)v
 
