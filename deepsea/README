@@ -1,0 +1,15 @@
+#In this directory, we use DeepSEA (v0.63) to calculate the variation impact on TF binding.
+
+#In the ENCODE called peaks, some peak can have multiple peakmax position, some peaks are overlaped.
+#We reprocess the peaks so that each peak region is only assigned to one peakMax position.
+p_preprocess_encode_peaks.py
+
+
+##Run DeepSEA for the called variants
+p_rundeepsea.py.
+#This script is modified based on the DeepSEA script. The difference is that the 
+#impact of variant is calculated based on the peak max position of the region.
+
+
+
+

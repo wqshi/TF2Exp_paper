@@ -1,0 +1,10 @@
+#In this directory, we use sailfish to process the RNA-seq data, and get expression value of each gene for each individual.
+
+#Create population and sex specific index for sailfish. This script is modified from Snyder 2015 paper (PMID: 26300125).
+RNA_mapping.sh
+
+#Using sailfish to process RNA-seq data, script modified based on Snyder 2015 paper (PMID: 26300125):
+quantify_RNA_node_dir.py
+
+
+
