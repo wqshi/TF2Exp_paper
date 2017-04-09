@@ -1,0 +1,35 @@
+
+54samples_logfoldchange/diff/evalue: compare the three scores provided by deepsea. Based on het/peer data.
+462samples_sailfish: use the rna-seq data I compiled from the sailfish
+462samples: use the rna-seq expression data from GEUVS project directly. But gives low accuracy.
+
+462samples_quantile: quantile(raw_rnaseq) + keep gene with NAs.
+462samples_quantile_rmNA: quantile(raw_rnaseq) + remove 72 genes with any NA expression value + remove zero expression genes.
+462samples_sailfish_quantile: variance stablize + quantile(raw_rnaseq) + scale
+462samples_peer: peer(raw_rnaseq) + scale
+462samples_snyder_norm: variance stablize + quantile + peer + keep covariate for population and gender
+462samples_snyder_original: variance stablize + quantile + peer + remove all covariate.
+462samples_log_quantile: remove the genes with any 0 expression in any individual. 11k left. Log transformed + quantile.
+
+
+445samples_5K: extend the promoter regions to 5k on both sides.
+445samples_sailfish: in second round of preprocess, we find 445samples overlapped with 1kg.
+445samples_nearest: assign variations to the nearest TF peak among all the 78 TFs.
+445samples_snpOnly: only use the SNPs to do TF alteration model.
+445samples_maf: similar to the 445samples_sailfish, but the SNP frequency is from 800 individuals.
+445samples_max: use the max impact score within the binding region instead of the sum.
+
+
+445samples_region: evaluate the variation impact regard to the peakMax of the region. Previous ones just sum the deepsea score directly.
+
+445samples_regionkeepLow: don't use the nearZero to remove the low frequency features.
+
+358samples_regionkeepLow: rm the YRI population.
+
+
+Details of normalization can be found in s_normalize_and_peer_expression_matrix.R and s_snyder_norm.
+
+
+
+
+
