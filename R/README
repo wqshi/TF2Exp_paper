@@ -1,19 +1,16 @@
-Add the guide lines for future self.
-
-How to run the scripts:
-see: s_batch_run_modes_keepLow_358.sh
-p_batch_run.R: core function.
-
-s_batch_run.sh: run the regression models on one chromosome. 
-The core is to run the s_run_single_gene.sh
+#Add the guide lines for future self.
 
 
+##################Train regression model for each gene###################
+#Script to start model training:
+s_batch_run_modes_keepLow_358.sh
+##The above script would call: p_batch_run.py -> s_batch_run.sh (run the regression models on one chromosome) -> 
+##->s_run_single_gene.sh-> s_regression_for_one_gene_OOB.R. The last R script will train regression model for each gene.
+
+
+
+#################Downstream analysis###############################
 Compare the selected features in two models (TF and SNPinTF): r_linkage_analysis.R
-
-
-The GO enrichment and well predict gene analysis: s_summary_regression_results.R
-
-
 
 s_summary_regression_features.R:
 * Most freuqent selected features
@@ -22,7 +19,10 @@ s_summary_regression_features.R:
 
 
 s_summary_regression_results.R:
+* Get the overall performance of different models.
+* Pair-wise compare different models.
 * Multiple plots of the manuscript.
+* The GO enrichment and well predict gene analysis
 
 
 
@@ -54,10 +54,8 @@ s_compare_rare_performance.R:
 s_check_snpOnly_rareVar_data.R
 
 
-
 #Qsub jobs.
 s_qsub_gene_job.sh
-
 
 
 #Data nomalization:
