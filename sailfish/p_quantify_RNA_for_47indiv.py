@@ -16,19 +16,20 @@ parser = argparse.ArgumentParser(description='Extract the deepsea predictions of
 def main():
 
     if __doc__ is None:
-        parser.add_argument('--out_dir',help='Out',default='%s/qsub_445samples/'%project_dir)
+        parser.add_argument('--out_dir',help='Out',default='%s/qsub_47samples/'%project_dir)
         parser.add_argument('--test_flag',help='Test flag',default='T')
         opts = parser.parse_args()
         out_dir = opts.out_dir
         test_flag = (opts.test_flag == 'T')
         node_dir="/state/partition1/shi/tmp_depth/%s/" % my.f_shell_cmd('echo $JOB_ID', quiet = True).replace('\n', '')
     else:
-        out_dir = '%s/qsub_445samples/'%project_dir
+        out_dir = '%s/qsub_47samples/'%project_dir
         node_dir = out_dir + '/node/'
         test_flag = True
+
     my.f_ensure_make_dir(out_dir)
-    FQ_dir='%s/fastq/' % project_dir
-    geuvadis_meta='%s/metaData/E-GEUV-1.sdrf.txt' % project_dir
+    FQ_dir='%s/fastq47indiv/' % project_dir
+    geuvadis_meta='%s/metaData/E-MTAB-3656.sdrf.txt' % project_dir
     our_study='%s/metaData/our_sample.list' % project_dir
     metadata='%s/metadata' % project_dir
     
@@ -64,10 +65,12 @@ def main():
             continue
         if person not in person_to_fq.keys():
             person_to_fq[person]=set()
-        curr_fq=items[28]
-        person_to_fq[person].add(FQ_dir+os.path.basename(curr_fq))
+
+        person_to_fq[person].add(FQ_dir+'/%s_end1.fastq.gz'%person )
+        person_to_fq[person].add(FQ_dir+'/%s_end2.fastq.gz'%person )
         #print items
-    
+
+    #import ipdb; ipdb.set_trace()
     print person_to_fq
     metadata_file=open(metadata,'w')
     for person in person_to_fq.keys(): 
@@ -104,7 +107,8 @@ def main():
         cmds.append('mkdir -p %s' % out_curr)
         cmds.append('cp -u %s %s' % ( ' '.join(fastqs), out_curr )  )
         loc_fastqs = [ os.path.join(out_curr, os.path.basename(fastq_file)) for fastq_file in fastqs ]
-
+        loc_fastqs.sort()
+        #import ipdb; ipdb.set_trace()
         #cmds.append(cmd_module)
         sailfish_exe='~/packages/Sailfish-0.6.3-Linux_x86-64/bin/sailfish'
         sailfish_cmd=sailfish_exe +' quant -i '+sailfish_idx+' -l '+library_type+' -1 <(gunzip -c '+loc_fastqs[0]+') -2 <(gunzip -c '+loc_fastqs[1]+') -o '+out_curr+' -f'
@@ -121,6 +125,8 @@ def main():
         print '\n'.join(cmds)
         if test_flag == False:
             qsub_a_command('qqqq'.join(cmds),out_dir + person +'_script.sh','qqqq','10G')
+        else:
+            print 'Skip %s' % person
 
 def qsub_a_command(cmd,shell_script_name,split_string=',',memory_number='20G'):
     f=open(shell_script_name,'w')
@@ -138,5 +144,17 @@ def qsub_a_command(cmd,shell_script_name,split_string=',',memory_number='20G'):
 
 main()
 
-
 #p quantify_RNA_node_dir.py qsub_445samples #Run in the clustdell head dir.
+
+
+
+
+
+
+
+
+
+
+
+
+
