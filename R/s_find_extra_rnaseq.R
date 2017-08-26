@@ -9,6 +9,11 @@ CEU60_samples=unique(CEU60_samples_df$Factor.Value.INDIVIDUAL.)
 YRI69_samples_df = read.table('./data/raw_data/YRI69/E-GEOD-19480.sdrf.txt', sep ='\t', header = TRUE)
 YRI69_samples=unique(YRI69_samples_df$FactorValue..CELL.LINE.)
 
+CTCF_samples_df = read.table('./data/raw_data/CEU_CTCF/E-ERAD-141.sdrf.txt', sep ='\t', header = TRUE)
+head(CTCF_samples_df)
+
+CTCF_samples=str_replace(unique(str_replace(CTCF_samples_df[['Comment.ENA_ALIAS.']], '_.*|-.*|B.*|i.*', '')), 'GM', 'NA')
+
 
 
 batch_name = '462samples_log_quantile'
@@ -26,6 +31,8 @@ unique_YRI_samples = setdiff(YRI69_samples, samples370)
 geuvis_samples = read.table('/homed/home/shi/expression_var/data/462samples/output/sample.list')
 colnames(geuvis_samples) = c('id', 'sample')
 head(geuvis_samples)
+intersect(geuvis_samples$sample, CTCF_samples)
+
 
 
 ###Why many papers say it's 420 overlap with 1000 Genome project###
@@ -48,8 +55,10 @@ non_YRI_samples=intersect(geuvis_samples$sample, subset(kg_samples, pop != 'YRI'
 length(non_YRI_samples)
 write.table(non_YRI_samples, './data/raw_data/samples358.ped', quote=F, row.names =F, col.names = F)
 
+non_YRI_CTCF_samples=intersect(CTCF_samples, subset(kg_samples, pop != 'YRI')$sample)
+rownames(kg_samples) = kg_samples$sample
 
-
+table(kg_samples[CTCF_samples,'pop'])
 
 unique_CEU_samples = intersect(kg_samples$sample, setdiff(CEU60_samples, geuvis_samples$sample))
 cat(length(unique_CEU_samples), 'of CEU60 can be used for testing \n')

@@ -5,7 +5,6 @@ library(futile.logger)
 source('s_project_funcs.R')
 library(stringr)
 
-
 GENE <- setRefClass("GENE",
                      fields = list( data = "data.frame",
                                    gene_name = "character",
@@ -27,23 +26,28 @@ GENE <- setRefClass("GENE",
                              if (f_judge_debug(debug)){
                                        ##:ess-bp-start::browser@nil:##
 browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
-                                 
+        
                              }
-                             
-                             if (batch_mode != 'TFsnpMatch') return (NULL)
-                             
-                             other_batch_name = '445samples_snpOnly'
+                             set_feature_id()
+                             if ( !grepl('TFsnpMatch', batch_mode)) return (NULL)
+
+                             if (batch_name %in% c('445samples_sailfish')){
+                                 other_batch_name = '445samples_snpOnly'
+                             }else{
+                                 other_batch_name = f_p('%s_snpOnly', str_replace(batch_name, '_rareVar', ''))
+                             }
                              snp_gene <- GENE(data = data.frame(), gene_name = gene_name, chr_str = chr_str, batch_name = other_batch_name)
                              snp_gene$read_data()
                              
                              snp_gene$set_feature_id()
-                             set_feature_id()
-                                                         
+                                                                                      
                              snp_tf_features = grep('enhancer|promoter', rownames(snp_gene$data), value =T)
                              loc_tf_features = grep('enhancer|promoter', rownames(data), value = T)
 
                              rare_tf_features=setdiff(loc_tf_features, snp_tf_features)
-                             f_ASSERT( length(setdiff(snp_tf_features, loc_tf_features)) == 0, 'SNP TF features are bigger than All TF features' )
+                             if (!grepl('rareVar', batch_name)){
+                                 f_ASSERT( length(setdiff(snp_tf_features, loc_tf_features)) == 0, 'SNP TF features are bigger than All TF features' )
+                             }
                              flog.info('Remove rare features: %s out of %s', length(rare_tf_features), length(loc_tf_features))
                              
                              selected_data = data[! (rownames(data) %in% rare_tf_features),]
@@ -60,7 +64,21 @@ browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
                              data <<- data[!duplicated(data[,merge_cols]),] #Remove the SNPs with same rs names. Potential problem
                              rownames(data) <<- paste(data$type, data$feature, data$hic_fragment_id, data$pair, data$feature_start, data$feature_end ,sep=':')
                          },
-                         hic_within_1Mb = function(){
+
+                         get_validation_samples = function(other_info){
+                             validation_samples = read.table('./data/raw_data/CEU47/validating_samples.txt', header = T)
+                             if (grepl('ctcf', other_info, ignore.case = T)){
+                                 return (validation_samples$ctcf)
+                             }else if(grepl('pu1', other_info, ignore.case = T)){
+                                 return (validation_samples$pu1)
+                             }else{
+                                 return (NULL)
+                             }
+                             
+
+                         },
+                         
+                         hic_within_1Mb = function(return_pos = FALSE){
                                                           
                              all.entrezgene = read.table('./data/raw_data/rnaseq/all.ensemble.genes.gene_start',sep='\t', header = TRUE, quote = "")
                              row.names(all.entrezgene) = all.entrezgene$ensembl_transcript_id
@@ -76,13 +94,35 @@ browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
                              subset_data = data[ hic_ids > gene_start & hic_ids < gene_end,]
                              flog.info('Filtered %s features out of 1Mb regions', nrow(data) - nrow(subset_data))
                              data <<- subset_data
-                         },
-                         read_test_data = function(test_batch, debug = FALSE) {
 
+                             if (return_pos == TRUE){
+                                 return (c(gene_start, gene_end))
+                             }
+                             
+                         },
+                         read_test_data = function(test_batch, test_individuals = NULL, debug = FALSE) {
+                             if (f_judge_debug(debug)){
+                                 ##:ess-bp-start::browser@nil:##
+                                 browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
+                             }
+
+                             #Seperate part of samples for final validation
+                             if (!is.null(test_individuals)){
+                                 
+                                 part_data = data[, setdiff(colnames(data), test_individuals)]
+                                 shared_data = data[, intersect(colnames(data), test_individuals)]
+                                 colnames(shared_data) = paste0('t_', colnames(shared_data))
+                                 data <<- cbind(part_data, shared_data)
+                                 return (TRUE)
+                             }
+                             
+
+                             #Read additional data.
                              output_dir = f_p('./data/%s/', test_batch)
                              expression_file = f_p('%s/rnaseq/%s/%s.txt', output_dir, chr_str, test_gene_name())                             
 
                              if ( !file.exists(expression_file) ){
+                                 flog.info('Missing testing data! %s', expression_file)
                                  return (FALSE)
                              }
                              test_data <- read.table(expression_file, header = T, na.strings = 'NA')
@@ -102,11 +142,7 @@ browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
                                                   'feature_start', 'feature_end', 'hic_fragment_id' ,
                                                   'type', sample_cols )]
                              }
-                             if (f_judge_debug(debug)){
-                                 ##:ess-bp-start::browser@nil:##
-browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
-                                 
-                             }
+
                              merge_cols = c('feature','feature_start', 'feature_end', 'hic_fragment_id', 'type', 'pair')
                              test_merge_data = test_data[!duplicated(test_data[, merge_cols]),c(merge_cols,sample_cols)]
                              test_samples = paste0('t_', sample_cols)
@@ -132,7 +168,15 @@ browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
                              return (str_replace(gene_name, '.[0-9]+$',''))
                          },
                          
-                         read_data = function() {
+                         read_data = function(debug=FALSE) {
+
+                             if (f_judge_debug(debug)){
+                                 ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
+                                 
+                                 
+                             }
+                             
                              output_dir = f_p('./data/%s/', batch_name)
                              expression_file = f_p('%s/rnaseq/%s/%s.txt', output_dir, chr_str, gene_name)
 
@@ -141,7 +185,7 @@ browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
                              data <<- read.table(expression_file, header = T, na.strings = 'NA')
                              
                              sample_cols = get_samples()
-                             flog.info('Number of samples: %s', length(sample_cols))
+                             flog.info('Number of samples: %s, features %s', length(sample_cols), nrow(data))
 
 
                              if ('cor'  %in% colnames(data)){
@@ -186,6 +230,7 @@ browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
                              shuffle_file = f_p('./data/%s/rnaseq/GEUVADIS.GeneRandom.DATA_MATRIX', loc_batch_name)
                              if(!file.exists(shuffle_file)){
                                  loc_data = read.table(f_p('./data/%s/rnaseq/GEUVADIS.Gene.DATA_MATRIX', loc_batch_name), header = TRUE)
+                                 set.seed(897)
                                  permutate_names = sample(x =1:nrow(loc_data), size = nrow(loc_data))
                                  random_data = loc_data
                                  random_data$gene = loc_data[permutate_names, 'gene']

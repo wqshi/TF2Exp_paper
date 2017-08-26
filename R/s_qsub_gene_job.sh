@@ -17,7 +17,8 @@ echo $PWD
 
 gene_dir=$HOME/expression_var/R/data/$batch_name/rnaseq/$chr_str/
 cd $gene_dir
-for gene_file in $(ls *.txt)
+#for gene_file in $(ls *.txt)
+for gene_file in $(find *.txt -size +0)
 do
     gene_name=${gene_file%.txt}
 

@@ -43,9 +43,13 @@ class region_table(data_table):
         if new_file_name is None:
             new_file_name = os.path.basename(self.file_path)
         self.change_file_name(new_file_name, chr_str)
-    def save_data(self):
-        self.data.drop_duplicates(inplace = True)
-        self.data.to_csv(self.file_path, index=None, sep="\t", na_rep=".", float_format='%.4e')
+    def save_data(self, keys = None):
+        if keys is None:
+            self.data.drop_duplicates(inplace = True)
+        else:
+            self.data.drop_duplicates(keys, inplace = True)
+            
+        self.data.to_csv(self.file_path, index=None, sep="\t", na_rep=".", float_format='%.3e')
         
     def extract_bed(self):
         #print self.data.head()
@@ -131,7 +135,7 @@ class region_table(data_table):
     def delete_file(self):
         os.remove(self.file_path)
         
-    def merge_feature(self, feature_data,expected_cols=["chr", "start"], check_index = True ,debug = False):
+    def merge_feature(self, feature_data,expected_cols=["chr", "start"], check_index = True, how ='left', save_data = True, debug = False):
 
         if debug == True:
             import ipdb; ipdb.set_trace()
@@ -146,7 +150,7 @@ class region_table(data_table):
             #print feature_data.index
             #selection = 1:10
             #print set(feature_data.ix[selection,"chr"]+feature_data.ix[selection, "start"].map(str)) - set(self.data.ix[selection,"chr"]+self.data.ix[selection,"start"].map(str))
-            assert set(self.data.index) >= set(feature_data.index), "Unexpected index"
+            assert set(self.data.index) >= set(feature_data.index), "Unexpected index; One reason might be the start value is in string format."
   
         new_cols = list( set(feature_data.columns) - set(self.data.columns) )
         update_cols = list(set(feature_data.columns).intersection(self.data.columns) - set(expected_cols) - set(['ref']) )
@@ -167,10 +171,42 @@ class region_table(data_table):
             print self.data.ix[0:10,update_cols]
             #print self.data.index[1:10]
         if new_cols !=[]:
-            self.data = pd.merge(self.data, feature_data.ix[:,new_cols + expected_cols], on=expected_cols, how="left")
-
+            #logging.info('Before pd merge')
+            self.data = pd.merge(self.data, feature_data.ix[:,new_cols + expected_cols], on=expected_cols, how=how)
+            #logging.info('After pd merge')
         #self.data = tmp_data
         self.data.set_index(keys=["chr","start"], inplace=True, drop=False)
-        self.save_data()
+        if save_data == True:
+            self.save_data()
         self.show_size(return_flag = True)
+    def get_sample_cols(self):
+        return  my.grep_list('(NA|HG)[0-9]+', self.data.columns)
+
+    def filter_near_zero_columns(self, cut_threshold = 0.05, debug = False):
+        if debug == True:
+            import ipdb; ipdb.set_trace()
+        sample_cols = self.get_sample_cols()
+        na_sum = (self.data.ix[:, sample_cols].astype(str) != '.').sum(axis = 1)
+        good_rows = na_sum >= max(cut_threshold * len(sample_cols), 1)
+        logging.info('Select %s non near-zero rows out of %s', sum(good_rows), len(good_rows))
+        self.data = self.data[good_rows]
+        logging.info('Data size %s', self.data.shape )
+        
+        
+        
+
+import unittest
+class TestDatabaseTable(unittest.TestCase):
+    def setUp(self):
+        a =0
+
+    def test_filter_near_zero_columns(self):
+        test_dir = '/homed/home/shi/expression_var/python/test/p_region_table'
+        feature_matrix_file = '%s/dnase_matrix.txt' % test_dir
+        feature_table = region_table(feature_matrix_file)
+        feature_table.filter_near_zero_columns(debug =True)
+        
+if __name__ == "__main__":
+    suite = unittest.TestLoader().loadTestsFromTestCase( TestDatabaseTable )
+    unittest.TextTestRunner(verbosity=1,stream=sys.stderr).run( suite )
 

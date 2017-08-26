@@ -91,3 +91,37 @@ f_quantile <- function(input_data){
     rownames(data_quantile) = rownames(input_data)
     return (data_quantile)
 }
+
+
+PEER_plotModel <- function(model){
+    par(mfrow=c(2,1))
+    bounds = PEER_getBounds(model)
+    vars = PEER_getResidualVars(model)
+    par(mar=c(5,4,4,5)+.1)
+    plot(bounds, type="l", col="red", lwd=2, xlab="Iterations", ylab="Lower bound")
+    par(new=TRUE)
+    plot(vars,,type="l",col="blue",xaxt="n",yaxt="n",xlab="",ylab="")
+    axis(4)
+    mtext("Residual variance",side=4,line=3)
+    legend("right",col=c("red","blue"),lty=1,legend=c("Lower bound","Residual variance"))
+    alpha = PEER_getAlpha(model)
+    plot(1/alpha,xlab="Factors",ylab="Variance of factor weights", type="b", col="blue", lwd=4, xaxp=c(1,length(alpha), length(alpha)-1))
+
+    
+}
+
+f_peer_variance_plot <- function(model){
+    alpha = PEER_getAlpha(model)
+    plot(1/alpha,xlab="Factors",ylab="Variance of factor weights", type="b", col="blue", lwd=4, xaxp=c(1,length(alpha), length(alpha)-1))
+}
+
+
+f_duplicated_rows <- function(df){
+        
+    return (duplicated(df) | duplicated(df[nrow(df):1,])[nrow(df):1])
+}
+
+
+
+source('s_test_cat.R')
+

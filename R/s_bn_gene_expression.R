@@ -1,33 +1,122 @@
 
 #install.packages('bnlearn')
 library(bnlearn)
+source('~/R/s_function.R', chdir = TRUE)
 
-expression_file = './data/rnaseq/gene_regulatory_region_feature_profile.chr1'
+#my_train = final_train_data
+#target_col = 'gene.RNASEQ'
+
+f_caret_regression_return_fit <- function(my_train, target_col, learner_name, quite=FALSE)
+{
+  
+  #cl <- makeCluster(3)
+  #registerDoSNOW(cl)
+  
+  library(caret)
+  
+  fitControl <- trainControl(method = "repeatedcv",
+                             number = 5,
+                             repeats = 1)
+  
+  if (learner_name == 'enet')
+  {
+    enetGrid <- expand.grid(.lambda = c(0, 0.01, .1), .fraction = seq(.05, 1, length = 5 ))
+    dim(train_data)
+    head(train_data)
+    zero_cols = nearZeroVar(my_train, freqCut = 90/10)
+    if (length(zero_cols) == 0)
+        non_zero_data = my_train
+    else
+        non_zero_data = my_train[, -zero_cols]
+    #non_zero_data = my_train
+    dim(non_zero_data)
+    colnames(non_zero_data)
+    
+    Fit <- train(form = as.formula(f_p('%s ~ .', target_col)), data = non_zero_data,
+                 method = "enet",
+                 #tuneGrid = enetGrid,
+                 trControl = fitControl,
+                 preProc = c("center", "scale"))
+    if (quite == FALSE){
+        print(Fit$resample)
+        summary(Fit)
+    }
+
+
+    ###Get the coefficient from the model########
+    
+    #coeff=predict(Fit$finalModel, type='coefficient', s=Fit$bestTune$fraction, mode='f')
+    #print(coeff$coefficients)
+    
+    #train_pred = predict(Fit, newdata = my_train, type='raw')
+    
+    #processed=preProcess(my_train, method = c('scale','center'))
+    #processed_data=predict(processed, my_train)
+    #result= data.frame(truth  = my_train[[target_col]])
+    #result[,predictors(Fit)] =   processed_data[,predictors(Fit)]
+    
+    
+    
+  }else
+  {
+    Fit <- caret::train( as.formula(f_p('%s ~ .', target_col)), data = my_train, metric = "Rsquared", 
+                         method = learner_name,
+                         trControl = fitControl,
+                         verbose = TRUE)
+    
+    #rfFit = randomForest(as.formula(f_p('%s ~ .', target_col)), data = my_train, ntree = 1000, do.trace=100)
+    
+    #train_pred = rfFit$pred
+    #result= data.frame(truth  = my_train[[target_col]])
+  }
+  
+  
+  
+  return (Fit)
+  
+}
+
+
+chr_str = 'chr22'
+model_str = 'all'
+
+expression_file = paste0('./data/rnaseq/gene_regulatory_region_feature_profile.', chr_str )
 output_dir = './data/output/figures/'
-expression_data = read.table(expression_file, header = TRUE)
+expression_data = read.table(expression_file, header = TRUE, na.strings = '.')
 head(expression_data)
+tail(expression_data[,1:10])
+
+
+
 cat('Number regulatory regions and empty fragment ids', '\n')
 table(expression_data$type, expression_data$hic_fragment_id == '.')
 
+table(expression_data$type, expression_data$feature)
 
 table(unlist(table(expression_data$gene)))
+
+colnames(expression_data)
 
 
 
 #Get the expressed transcripts
 sample_cols = grep('NA[0-9]+', colnames(expression_data),value = T)
+
+
+expression_data = expression_data[,c('chr', 'start', 'end', 'gene','feature','feature_start', 'feature_end', 'hic_fragment_id' ,'type', sample_cols )]
+#write.table(sample_cols, './data/output/sample.list', sep = '\t', quote = F, col.names = F)
 rna_data = subset(expression_data, feature == 'RNASEQ')
 rownames(rna_data) = rna_data$gene
 expressed_transcripts = rownames(rna_data)[rowSums(rna_data[, sample_cols]) > 0]
 cat('The number of expressed transcripts:', length(expressed_transcripts), '\n')
 
-
-
+head(rna_data)
+#str(rna_data)
 #Get the genes with at least one elements
 gene_with_regulatory_elements = as.data.frame.matrix(table(expression_data$gene, expression_data$feature))
 head(gene_with_regulatory_elements)
 str(gene_with_regulatory_elements, max.level = 1)
-regulated_genes_names = rownames(gene_with_regulatory_elements)[ rowSums(gene_with_regulatory_elements[,1:3]) > 5]
+regulated_genes_names = rownames(gene_with_regulatory_elements)[ rowSums(gene_with_regulatory_elements) > 10]
 cat('The number of regulated transcripts:', length(regulated_genes_names), '\n')
 
 #Get the inverstigeed genes
@@ -37,40 +126,61 @@ cat('The number of investigated transcripts:', length(genes_names), '\n')
 
 length(genes_names)
 
-library(caret)
+print(genes_names[1:20])
+
+prediction_performance = data.frame(gene = '', performance = '', stringsAsFactors = F)
+i = 2
 for (i in 1:length(genes_names)){
+    if(i == 100){
+        print( 'First 100 genes')
+        break
+    }
+    
     transcript_id = genes_names[i]
+    transcript_id = 'ENST00000498133.1'
+    cat('\n','============',i, transcript_id, '==============')
+    sum(gene_with_regulatory_elements[transcript_id,])
+    gene_with_regulatory_elements[transcript_id,]
     transcript_data = expression_data[expression_data$gene == transcript_id,]
-
-
-
+    dim(transcript_data)
+    head(transcript_data)
+    table(transcript_data$feature)
     train_data = transcript_data[,sample_cols]
+    sum(is.na(train_data))
+    dim(train_data)
+
+    head(train_data)
+    
+    train_data[is.na(train_data)] = 0
     rownames(train_data) = make.names(paste0(transcript_data$type, '-',transcript_data$feature), unique = T)
     train_data_rmdup = train_data[!duplicated(train_data),]
 
-
-##############################
-#####train the BN model############
     train_data2 = as.data.frame(t(train_data_rmdup))
-    correlated_features = findCorrelation(cor(train_data2), cutoff = 0.75)
+    final_train_data  = train_data2
+    #ead(final_train_data)
+    colnames(final_train_data)
+    head(final_train_data)
 
-
-    final_train_data  = train_data2[, -correlated_features]
-    dim(final_train_data)
-    if (ncol(final_train_data) < 50 & ncol(final_train_data) > 5){
-        
-        cat('Transcript', transcript_id, '-', i, 'has', ncol(final_train_data), 'features', '\n')
-        res = fast.iamb(final_train_data)
-        png(paste0(output_dir,transcript_data$gene[1], '.png'), width = 900, height = 900)
-        plot(res, main = transcript_data$gene[1])
-        fitted = bn.fit(res, final_train_data)
-        dev.off()
-        break
-    }else{
-        cat('Transcript', transcript_id, 'has', ncol(final_train_data), 'features', '\n')
+    result <- try(
+                        fit  <- f_caret_regression_return_fit(my_train = final_train_data, target_col = 'gene.RNASEQ', learner_name = 'enet'),
+                        silent=TRUE
+                       )
+    if (class(result) == "try-error"){
+        cat('Error in ', transcript_id, '\n')
+        next
     }
-
-
+    #print(fit$results)
+    max_performance = max(fit$results$Rsquared)
+    print(max_performance)
+    prediction_performance = rbind(prediction_performance, c(as.character(transcript_id), as.character(max_performance)))
+    #print(prediction_performance)
+    
 }
 
+
+write.table(prediction_performance, file = f_p('./data/output/lasso.prediction.%s.%stxt', chr_str, model_str ), sep = '\t', quote=FALSE)
+
+performance_data = read.table(file = f_p('./data/output/lasso.prediction.%s.%stxt', chr_str, model_str), sep = '\t')
+
+cat("Mean R-square:",  mean(performance_data[complete.cases(performance_data),]$performance), '\n')
 

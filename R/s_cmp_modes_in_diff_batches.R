@@ -95,13 +95,12 @@ chr_list = c('chr22', 'chr10', 'chr15')
 #chr_list = c('chr22')
 
 
-
 collection_name = 'peer358cor'
 peer_list = modes_list[[collection_name]][c('TF', 'SNP','All', 'SNPinTF', 'random' ,'TFaddInteract','TFsnpMatch', 'TFaddPenalty', 'TFfilterMinor')]
 rmdup_list = modes_list[['peer358corRmdup']][c('TF', 'SNP','All', 'SNPinTF', 'random' ,'TFaddInteract','TFsnpMatch', 'TFaddPenalty', 'TFfilterMinor')]
 gtex_list = modes_list[['gtex']][c('TF', 'SNP','All', 'SNPinTF', 'random' ,'TFaddInteract','TFsnpMatch', 'TFaddPenalty', 'TFfilterMinor')]
 elastic_list = modes_list[['elastic']][c('TF', 'SNP','All', 'SNPinTF', 'random' ,'TFaddInteract','TFsnpMatch', 'TFaddPenalty', 'TFfilterMinor')]
-
+trad2_list = modes_list[['peer358']]
 #Compare the performance between lasso and elastic
 tf_performance = f_compare_two_modes_in_diff_batches(normal_batch, normal_batch, 'TF', 'TF', rmdup_list, elastic_list, chr_list, rsync_flag = rsync_flag, add_batch_name = T)
 
@@ -122,6 +121,18 @@ tf_performance = f_compare_two_modes_in_diff_batches(normal_batch, normal_batch,
 tf_performance = f_compare_two_modes_in_diff_batches(normal_batch, normal_batch, 'TF', 'All', rmdup_list, rmdup_list, chr_list, rsync_flag = rsync_flag, add_batch_name = T)
 
 tf_match_performance = f_compare_two_modes_in_diff_batches(normal_batch, snp_batch, 'TFsnpMatch', 'TF', rmdup_list, rmdup_list, chr_list, rsync_flag = rsync_flag, add_batch_name = T)
+
+
+
+#Compare the TF and TFaddPenalty under tradR2
+tf_performance = f_compare_two_modes_in_diff_batches(normal_batch, normal_batch, 'TF', 'TFaddPenalty', trad2_list, trad2_list, chr_list, rsync_flag = rsync_flag, add_batch_name = T)
+
+#Compare the TF and TFaddPenalty under corR2
+tf_performance = f_compare_two_modes_in_diff_batches(normal_batch, normal_batch, 'TF', 'TFaddPenalty', peer_list, peer_list, chr_list, rsync_flag = rsync_flag, add_batch_name = T)
+
+#Compare the TF under tradR2 and corR2
+tf_performance = f_compare_two_modes_in_diff_batches(normal_batch, normal_batch, 'TF', 'TF', peer_list, trad2_list, chr_list, rsync_flag = rsync_flag, add_batch_name = T)
+
 
 
 t_test_feature_counts <- function(tf_match_performance){

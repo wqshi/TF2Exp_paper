@@ -52,15 +52,29 @@ browser(expr=is.null(.ESSBP.[["@3@"]]))##:ess-bp-end:##
     print(table(sample_info[diff_cols,'pop']))
     cat('Diff individuals', length(diff_cols), 'Similar individuals', length(similar_cols), '\n')
     #print(merge_feature[, diff_cols])
+
+    
+
     
     cat(
-        'Weak batch feature cor overall:',f_my_cor_df_rows(feature_data1[1, sample_cols], merge_feature[3, sample_cols]),
-        'Strong batch feature cor overall', f_my_cor_df_rows(feature_data2[1, sample_cols], merge_feature[3, sample_cols]), '\n',
-        'Weak diff cor',f_my_cor_df_rows(merge_feature[1, diff_cols], merge_feature[3, diff_cols]),
-        'Strong diff cor', f_my_cor_df_rows(merge_feature[2, diff_cols], merge_feature[3, diff_cols]),
+        'A batch feature cor overall:',f_my_cor_df_rows(feature_data1[1, sample_cols], merge_feature[3, sample_cols]),
+        'B batch feature cor overall', f_my_cor_df_rows(feature_data2[1, sample_cols], merge_feature[3, sample_cols]), '\n',
+        'A diff cor',f_my_cor_df_rows(merge_feature[1, diff_cols], merge_feature[3, diff_cols]),
+        'B diff cor', f_my_cor_df_rows(merge_feature[2, diff_cols], merge_feature[3, diff_cols]),
         'Similar cor',f_my_cor_df_rows(merge_feature[2, similar_cols], merge_feature[3, similar_cols]), '\n'
     )
 
+    merge_feature_t = t(merge_feature)
+    A_all = data.frame(feature = merge_feature_t[sample_cols, 1], exp = merge_feature_t[sample_cols, 3], type = 'A_all')
+    B_all = data.frame(feature = merge_feature_t[sample_cols, 2], exp = merge_feature_t[sample_cols, 3], type = 'B_all')
+    A_diff = data.frame(feature = merge_feature_t[diff_cols, 1], exp = merge_feature_t[diff_cols, 3], type = 'A_diff')
+    B_diff = data.frame(feature = merge_feature_t[diff_cols, 2], exp = merge_feature_t[diff_cols, 3], type = 'B_diff')
+    similar = data.frame(feature = merge_feature_t[similar_cols, 2], exp = merge_feature_t[similar_cols,3], type = 'similar')
+
+    combine_data = rbind(A_all, B_all, A_diff, B_diff, similar)
+    colnames(combine_data) = c('feature', 'exp', 'type')
+    p<-ggplot(combine_data, aes(feature, exp)) + geom_point( alpha = 0.5 ) + geom_smooth() + facet_wrap(~type)
+    
 }
 
 
@@ -82,9 +96,29 @@ sample_info = read.table(f_p('./data/462samples/chr_vcf_files/integrated_call_sa
 ref_binding_score = read.table('./data/445samples_regionkeepLow/deep_result/all/chrMergeTF/chr22.ref.gz', header = T, sep = ',')
 head(ref_binding_score)
 
-for(input_gene in perf_diff[1:2:20, 'gene']){
+head(perf_diff)
+i = 3
+for( i in 1:10){
+    input_gene = perf_diff[i, 'gene']
     print('\n\n')
-    print('=================')
+    cat('=============', input_gene, 'Performance diff', perf_diff[i, 'diff'] ,'=============', '\n')
+    try( result <-
+    f_compare_correlation_of_top_features(batch_name_A, batch_name_B, return_list_A, return_list_B, chr_str, input_gene, sample_info, ref_binding_score, debug = F)
+    )
+}
+
+
+
+
+
+head(perf_diff)
+minus_genes = perf_diff %>% arrange(diff)
+head(minus_genes)
+rownames(minus_genes) = minus_genes$gene
+
+for(input_gene in minus_genes[1:10, 'gene']){
+    print('\n\n')
+    cat('=============', input_gene, 'Performance diff', minus_genes[input_gene, 'diff'] ,'=============', '\n')
     try( result <-
     f_compare_correlation_of_top_features(batch_name_A, batch_name_B, return_list_A, return_list_B, chr_str, input_gene, sample_info, ref_binding_score, debug = F)
     )
@@ -92,22 +126,6 @@ for(input_gene in perf_diff[1:2:20, 'gene']){
 
 
 stop()
-
-perf_diff$perf = perf_diff[,2]
-head(perf_diff)
-minor_genes = perf_diff %>% filter(abs(diff)< 0.01, perf > 0.05)
-
-head(minor_genes)
-
-for(input_gene in minor_genes[1:20, 'gene']){
-    print('\n\n')
-    print('=================')
-    try( result <-
-    f_compare_correlation_of_top_features(batch_name_A, batch_name_B, return_list_A, return_list_B, chr_str, input_gene, sample_info, ref_binding_score, debug = T)
-    )
-}
-
-
 
 #21212487    21212867 ENSG00000099940.7 promoter.CHD2 -0.2653038
 target_tf = 'CHD2'

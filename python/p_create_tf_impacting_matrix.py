@@ -32,35 +32,56 @@ else:
     chr_num = 'chr22'
     mode_str = 'all'
     batch_name = 'test'
-    test_flag = True
+    test_flag = False
+    
 batch_output_dir = f_get_batch_output_dir(batch_name)
 
 
 deepsea_dir = '%s/deep_result/%s/%s/evalue/%s_het/' % (batch_output_dir, mode_str ,chr_num, batch_name)
 
 #deepsea_data = pd.read_csv('%s/infile.head.txt'%deepsea_dir, sep = ',')
-peak_list = f_get_tf_peak_list(project_dir)
 
-tf_list = [[re.split('[.]|-',os.path.basename(peak_file))[2], os.path.getsize(peak_file)] for peak_file in peak_list ]
-peak_file_df = pd.DataFrame(data = tf_list, columns = ['tf', 'file_size'])
-peak_file_df['file_path'] = peak_list
 
-##Keep the large peak file.
-peak_file_df_rmdup = peak_file_df.sort(columns = 'file_size', ascending = False ).drop_duplicates(['tf'])
+peak_file_df_rmdup = f_get_peak_file_df_rmdup(project_dir, version ='processed')
 print peak_file_df_rmdup.shape
-print peak_file_df.ix[1:3,:]
-print peak_file_df.ix[1:3,:].sort(columns = 'file_size', ascending = False ).drop_duplicates(['tf'])
 print peak_file_df_rmdup.head()
 
+
+variation_file_list = my.f_shell_cmd( "find %s -name '*.diff'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
+logging.info('Number of diff files %s', len(variation_file_list))
+
+variation_data = pd.read_csv(variation_file_list[0], sep =',')
+loc_tf_list = list(set( [ feature.split('|')[1].lower() for feature in my.grep_list('GM12878',variation_data.columns.values)]))
+loc_tf_list.sort()
+my.f_print_list(loc_tf_list)
+print len(loc_tf_list)
+
+
+
+for loc_tf in peak_file_df_rmdup.deepsea_tf:
+    if loc_tf not in loc_tf_list:
+        print '%s in deepsea tf list %s' %(loc_tf, loc_tf in loc_tf_list)
+
+print peak_file_df_rmdup.deepsea_tf.isnull().sum()
+print peak_file_df_rmdup.shape
+
+
 #the variation distacne to tf. Not all the variants, only the variants near the Tf binding regions.
-variation_dis = pd.read_csv('%s/data/raw_data/wgs/1kg/variant_tf_distance/variation_dis_to_peakMax.%s' % (project_dir, chr_num), sep = '\t',na_values = '.')
-variation_dis.drop_duplicates('start', inplace = True)
-variation_dis['min_dis']=variation_dis.ix[:,4:].apply(np.nanmin, axis = 1)
 if 'nearest' not in batch_name:
-    variation_dis = variation_dis.ix[0:10,:]
-print len(variation_dis.columns.values[4:-1])
-print set(peak_file_df_rmdup.tf) - set(variation_dis.columns.values[4:-1])
-print variation_dis.shape
+    variation_dis = 0
+else:
+    variation_dis = pd.read_csv('%s/data/raw_data/wgs/1kg/variant_tf_distance/variation_dis_to_peakMax.%s' % (project_dir, chr_num), sep = '\t',na_values = '.')
+    variation_dis.drop_duplicates('start', inplace = True)
+    variation_dis['min_dis']=variation_dis.ix[:,4:].apply(np.nanmin, axis = 1)
+    print len(variation_dis.columns.values[4:-1])
+    print set(peak_file_df_rmdup.tf) - set(variation_dis.columns.values[4:-1])
+    print variation_dis.shape
+
+
+
+
+
+
 
 
 #Read the SNP locations.
@@ -72,14 +93,10 @@ print snp_data.columns
 
 ############################
 
-variation_file_list = my.f_shell_cmd( "find %s -name '*.diff'"%(deepsea_dir), quiet = True).split('\n')[0:-1]
-logging.info('Number of diff files %s', len(variation_file_list))
 
+    
+    
 
-variation_data = pd.read_csv(variation_file_list[0], sep =',')
-loc_tf_list = list(set( [ feature.split('|')[1].lower() for feature in my.grep_list('GM12878',variation_data.columns.values)]))
-loc_tf_list.sort()
-my.f_print_list(loc_tf_list)
 if batch_name == 'test':
     loc_tf_list = ['pol3','c-fos'] + loc_tf_list[1:3]
     
@@ -137,7 +154,7 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
     print tf_regions_table.file_path
     
     tf_regions_table.extract_bed()
-    if my.f_debug():
+    if my.f_debug(False):
         import ipdb; ipdb.set_trace()
 
     snp_coverage_list = []
@@ -207,23 +224,32 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         #print variation_data.shapes
         
         #Intersect with the tf_binding regions.
-        tf_variation_data = tf_regions_table.overlap_with_feature_bed(tmp_bed_file, 3, value_name=sample_id)
+        tf_variation_data = tf_regions_table.overlap_with_feature_bed(tmp_bed_file, 3, value_name=sample_id, debug = False)
         #print tf_regions_table.data.shape
 
         #print tf_variation_data.head()
-
         #Aggregete the impact for the same regions
-        tf_variation_data[sample_id] = tf_variation_data[sample_id].astype(float)        
-        agg_variation_data = tf_variation_data.groupby(['chr', 'start'], as_index=False).sum()
+        tf_variation_data[sample_id] = tf_variation_data[sample_id].astype(float)
+        
+        if 'maxVar' in batch_name:
+            #logging.info('In max Var mode to summary the results.')        
+            agg_variation_data = tf_variation_data.groupby(['chr', 'start'], as_index=False).max()
+        else:
+            agg_variation_data = tf_variation_data.groupby(['chr', 'start'], as_index=False).sum()
 
+        agg_variation_max = tf_variation_data.groupby(['chr', 'start'], as_index=False).max()
+        if agg_variation_max.shape[0] != tf_variation_data.shape[0] and batch_name == 'test':
+            #import ipdb; ipdb.set_trace()
+            tf_variation_data = tf_regions_table.overlap_with_feature_bed(tmp_bed_file, 3, value_name=sample_id, debug = False)
+        
         #merge aggregated impact to the TF binding regions.
         tf_regions_table.merge_feature(agg_variation_data)
 
         os.remove(tmp_bed_file)
-    if my.f_debug():
+    if my.f_debug(False):
         import ipdb; ipdb.set_trace()
-    target_list=['rareVar', 'test', 'snpOnly']
     
+    target_list=['rareVar', 'test', 'snpOnly']
     if len(my.grep_list('.*(%s)'%'|'.join(target_list), [batch_name])) > 0:
         print 'SNP coverage'
         #print snp_coverage_list
@@ -233,7 +259,9 @@ def parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, t
         
     if tf_regions_table.loc_file is not None:
         os.remove(tf_regions_table.loc_file)
-    
+
+
+#Just test one tf for the preprocess.
 for loc_tf in loc_tf_list[2:]:
     print loc_tf
     parse_one_tf(variation_file_list, peak_file_df_rmdup, target_cell, loc_tf, tf_variation_dir, variation_dis, batch_name)

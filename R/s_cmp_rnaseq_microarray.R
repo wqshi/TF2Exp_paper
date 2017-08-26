@@ -1,4 +1,3 @@
-
 source('~/R/s_function.R', chdir = TRUE)
 source('s_project_funcs.R')
 

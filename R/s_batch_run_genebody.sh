@@ -30,7 +30,10 @@ do
     sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878 $new_batch $new_batch_random
 
     new_batch_random='SNP'
-    #sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878 $new_batch $new_batch_random
+    sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878 $new_batch $new_batch_random
+
+    new_batch_random='SNPinTF'
+    sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878 $new_batch $new_batch_random
 
     new_batch_random='random'
     #sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878 $new_batch $new_batch_random

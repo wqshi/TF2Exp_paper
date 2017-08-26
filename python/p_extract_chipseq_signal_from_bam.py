@@ -1,5 +1,11 @@
 
 #Use homer to extract read density from bam files.
+import os
+home_dir = os.path.expanduser('~')
+lib_dir = '%s/expression/python/' % home_dir
+import sys
+sys.path.append(lib_dir)
+print(sys.path)
 from p_project_metadata import *
 import p_mymodule as my
 
@@ -10,7 +16,7 @@ if (my.f_get_server_name() == "loire"):
 else:
     head_dir="/home/shi/projects/expression_var/data/raw_data/tf/embl_data"
     node_dir="/state/partition1/shi/tmp/"
-
+    node_dir='/raid6/shi/tmp/'
 tf_peak = {'PU1':'haib-gm12878-pu1.narrowPeak', 'RPB2':'haib-gm12878-pol2.narrowPeak', 'CTCF':'sydh-gm12878-ctcf.narrowPeak'}
 
 #tf_list = ['RPB2', 'PU1']
@@ -38,7 +44,7 @@ def f_process_one_CTCF(loc_bam, head_dir, node_base_dir):
     copy_cmd = 'cp -r %s/%s %s; rm -r %s' % (node_dir, individual_id, head_dir, node_dir)
     my.f_shell_cmd(copy_cmd)
 
-para_flag = True
+para_flag = False
 
 for loc_tf in tf_list:
 
@@ -64,10 +70,12 @@ for loc_tf in tf_list:
     my.f_shell_cmd(annotate_cmd)
 
 
-
-
 #annotatePeaks.pl /homed/home/shi/expression_var/data/raw_data/tf/encode_peaks/processed/haib-gm12878-pu1.narrowPeak hg19 -size given  -d NA10851-PU1-Rep1/ NA10852-PU1-Rep1/ -noann > output.file
 
 #RNA-seq
 
 
+#[Fri Feb 24 22:59:31 2017] p p_run_cluster_sep.py preprocess-24g p_extract_chipseq_signal_from_bam.py 1 1 1 1 1 1 1 1 1 1 1
+#[Fri Feb 24 23:03:18 2017] p p_run_cluster_sep.py preprocess-shi-24g p_extract_chipseq_signal_from_bam.py 1 1 1 1 1 1 1 1 1 1 1
+#[Fri Feb 24 23:06:24 2017] p p_run_cluster_sep.py preprocess-shi-24g p_extract_chipseq_signal_from_bam.py 1 1 1 1 1 1 1 1 1 1 1
+#[Fri Feb 24 23:08:34 2017] p p_run_cluster_sep.py preprocess-shi-24g p_extract_chipseq_signal_from_bam.py 1 1 1 1 1 1 1 1 1 1 1

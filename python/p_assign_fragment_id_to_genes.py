@@ -1,4 +1,3 @@
-#
 
 # Assign Hic fragment_id to the promoter regions. All the chrs.
 from p_project_metadata import *
@@ -23,15 +22,18 @@ if __doc__ is None:
     parser.add_argument("--chr",     help="The chr wanted to compute", default="chr22")
     parser.add_argument("--mode", help="Output type: test(only first 1000 variants); all(all the variants)", default="all")
     parser.add_argument('--batch_name', help = "462samples or 54samples", default = '462samples' )
+    parser.add_argument('--promoter_type', help = "Use TSS or gene start positions[gene|TSS]", default = 'gene' )
     args = parser.parse_args()
     chr_num = args.chr
     mode_str = args.mode
     batch_name = args.batch_name
+    promoter_type = args.promoter_type
 else:
     chr_num = 'chr22'
     mode_str = 'all'
-    #batch_name = '54samples'
+    #batch_name = '54samples_evalue'
     batch_name = 'test'
+    promoter_type = 'TSS'
 
 
 batch_output_dir = f_get_batch_output_dir(batch_name)
@@ -39,8 +41,10 @@ batch_output_dir = f_get_batch_output_dir(batch_name)
 #batch_name = '54samples'
 #batch_name = '462samples'
 
-
-gene_expression_file = f_get_batch_output_dir(batch_name) + '/rnaseq/transcript_data.bed'
+if promoter_type == 'gene':
+    gene_expression_file = f_get_batch_output_dir(batch_name) + '/rnaseq/transcript_data.bed'
+else:
+    gene_expression_file = f_get_batch_output_dir(batch_name) + '/rnaseq/transcript_loc.bed'
 
 hic_id_pd = pd.read_csv(hic_id_file,sep='\t',header = None,names = ['chr_num', 'start', 'end', 'middle'])
 #import p_region_table as p_region_table
@@ -48,26 +52,30 @@ hic_id_pd = pd.read_csv(hic_id_file,sep='\t',header = None,names = ['chr_num', '
 
 
 
-
 if True:
     expression_table = region_table(gene_expression_file)
     combined_df = expression_table.data
     print 'Number of genes in the rnaseq data:', expression_table.data.shape
-    expression_table.change_file_name('assign_gene_hic_id')
-    print expression_table.head()
+    expression_table.subset_one_chr('assign_gene_hic_id', chr_num)
+    print expression_table.head()#Remove the sample cols.
+    print expression_table.data.shape
+    print expression_table.file_path
     #expression_table.data['start'] = expression_table.data['start'] - 2000
     #expression_table.save_data()
     #Clean the expression table data
     #print expression_table.data.columns
-
     
     feature_overlap_data = expression_table.overlap_with_feature_bed(hic_id_file, value_col=3, value_name='hic_fragment_id')
     log('Feature data head:', feature_overlap_data.head())
     print 'Size of feature overlap data:', feature_overlap_data.shape
     feature_overlap_data['hic_fragment_id'] = feature_overlap_data['hic_fragment_id'].astype(str)
 
+    print feature_overlap_data
+    
     #Merge the feature based on chr, and start
     expression_table.merge_feature(feature_overlap_data)
+    print expression_table.data.drop_duplicates(['gene', 'hic_fragment_id'], inplace=True)
+    expression_table.save_data()
     print 'Size of expression table', expression_table.data.shape
     print 'Number of gene with hic contact: ', expression_table.data.shape[0] - sum(expression_table.data.duplicated(['gene']))
     print 'Number of duplicates: %s' % sum(expression_table.data.duplicated())
@@ -108,11 +116,16 @@ if True:
         gene_subset = gene_df[(gene_df.gene == transcript_id)]
         log('gene_subset', gene_subset.head(10))
         print (gene_subset)
-        assert all(gene_subset.start <= gene_subset.hic_fragment_id.astype(float))
-        assert all(gene_subset.end >= gene_subset.hic_fragment_id.astype(float))
+        #assert all(gene_subset.start <= gene_subset.hic_fragment_id.astype(float))
+        #assert all(gene_subset.end >= gene_subset.hic_fragment_id.astype(float))
         
         #logging.info("Row %s, Combined %s = Gene %s * feature %s" %(i, combined_subset.shape[0], gene_subset.shape[0], feature_subset.shape[0]))
         #assert combined_subset.shape[0] == gene_subset.shape[0] * feature_subset.shape[0]
+
+
+
+
+
 
 
 

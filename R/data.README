@@ -26,8 +26,19 @@
 
 358samples_regionkeepLow: rm the YRI population.
 
-
 Details of normalization can be found in s_normalize_and_peer_expression_matrix.R and s_snyder_norm.
+
+
+Other information:
+
+corR2: R-square as cor^square
+keepZero: don't remove the low frequency features using near zero features
+Rmdup: remove the duplicated features for the same peak.
+Peer, Gtex: normalization method.
+
+
+
+
 
 
 

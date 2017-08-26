@@ -57,6 +57,12 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         
     if (keepZero == FALSE){
         zero_cols = nearZeroVar(my_train, freqCut = 95/5)
+        tf_cols = grep('promoter|enhancer', colnames(my_train))
+        if (length(tf_cols) > 0){
+            low_cols = tf_cols[colSums(abs(my_train[,tf_cols]) >= 0.01) >= nrow(my_train) * 0.05]
+            zero_cols = unique(c(zero_cols, low_cols))
+        }
+        
     }else{
         zero_cols = nearZeroVar(my_train, freqCut = 399/1, uniqueCut = 200/nrow(my_train))         
     }
@@ -490,7 +496,8 @@ browser(expr=is.null(.ESSBP.[["@7@"]]))##:ess-bp-end:##
     final_plot <-arrangeGrob(density_plot, hist_plot ,pred_vs_obs, residual_plot, ncol=2, nrow =2)
     #ggsave <- ggplot2::ggsave; body(ggsave) <- body(ggplot2::ggsave)[-2]
     #ggsave(filename = save_path, final_plot)
-
+    #Plot the pred_vs_obs
+    ggplot(input_data, aes(x = pred, y = obs)) + geom_point(color = '#00BFC4') + theme_Publication(14) + xlab('Expression of NIPSNAP1 predicted by TF2Exp') + ylab('Observed in RNA-seq') + geom_smooth(method = 'lm', color = 'black') + annotate(geom = 'text', x = -1, y= 2, label = 'R: 0.41')
     tiff(save_path)
     plot(final_plot)
     dev.off()
@@ -1190,7 +1197,7 @@ if (getOption('run.main', default=TRUE)) {
 }
 
 
-f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty, debug = False){
+f_add_penalty_factor <- function(input_data_raw, cor_vector, add_penalty, debug = FALSE){
     #cor_vector: hic correlation/interaction score.
     if (f_judge_debug(debug)){
         ##:ess-bp-start::browser@nil:##
@@ -1234,7 +1241,9 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
     }
     train_perf = f_get_train_performance(fit, final_train_data, 'gene.RNASEQ')
     output_file = f_p('%s/%s.enet',  results_dir, transcript_id)
-    prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' , alpha=0, lambda=0, CEU =0, CHB =0, JPT=0, YRI=0, hic_num =0, stringsAsFactors = F)
+    prediction_performance = data.frame(gene = 'mean', train_performance=0, performance = '0', SD = '0', num_feature = '0' , alpha=0, lambda=0, hic_num =0, stringsAsFactors = F)
+    prediction_performance = cbind(prediction_performance, t(cor_nums))
+
     collected_features = data.frame()
 
     key_features = str_replace_all(names(fit$key_features),'`','')                                   
@@ -1267,7 +1276,7 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
                                    c(as.character(transcript_id), as.character(train_perf),
                                      as.character(max_performance), as.character(RsquaredSD),
                                      as.character(fit$num_features),
-                                     fit$bestTune[1,1], fit$bestTune[1,2], cor_nums, hic_num_df[1,1]))
+                                     fit$bestTune[1,1], fit$bestTune[1,2], hic_num_df[1,1], as.vector(as.matrix(cor_nums))))
     #print(prediction_performance)
     
     flog.info('Output file: %s', output_file)
@@ -1357,20 +1366,40 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         colnames(pred_value) = c('pred', 'population', 'obs', 'samples')
         
         #ggplot(pred_value, aes(pred, obs)) + geom_point() + facet_wrap(. ~ population, nrow =2)
-        p<-ggplot(subset(pred_value, population %in%c('CHB')), aes(pred, obs)) + geom_point() +
-            theme_Publication(12) + xlab('TF2Exp prediction') + ylab('Microarray expression levels') + ggtitle(transcript_id)
         
         #cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = R2(pred, obs, formula =  "traditional", na.rm = FALSE)) %>% as.data.frame
         cor_stats <- pred_value %>% dplyr::group_by(population) %>% dplyr::summarise( pop_cor = f_my_cor(pred, obs)) %>% as.data.frame
         rownames(cor_stats)=cor_stats$population
-        if(cor_stats['CHB','pop_cor'] > 0.6){
-            ggsave(f_p('%s/%s.enet.external.tiff', results_dir, transcript_id), plot = p)
-        }
-        
         short_key_features = data.frame(feature = names(fit$key_features), coef = fit$key_features) %>% filter(coef != 0 , feature != '(Intercept)')
         essentail_data = cbind(pred_value, test_data[, short_key_features$feature])
         
-        return (list(cor_stats = cor_stats[c('CEU', 'CHB', 'JPT', 'YRI'),'pop_cor'], essentail_data = essentail_data, short_key_features = short_key_features))
+        if( 'CHB' %in% rownames(cor_stats) & cor_stats['CHB','pop_cor'] > 0.4){
+            p<-ggplot(subset(pred_value, population %in%c('CHB')), aes(pred, obs)) + geom_point() +
+            theme_Publication(14) + xlab('TF2Exp prediction') + ylab('Microarray expression levels') #+ ggtitle(transcript_id)
+
+            #Add arrows
+            if (gene == 'ENSG00000100376.7'){
+                label_data = pred_value %>% filter(population == 'CHB') %>% filter(obs == max(obs) | obs == min(obs)) %>% mutate(yend = obs)
+                head(label_data)
+                label_data$xend[2] = label_data$pred[2] + 0.2
+                label_data$xend[1] = label_data$pred[1] - 0.2
+
+                label_data$pred[2] = label_data$pred[2] + 0.04
+                label_data$pred[1] = label_data$pred[1] - 0.04
+            
+                label_data2 = label_data
+                label_data2$xend[2] = label_data$pred[2] + 0.7
+                label_data2$yend = label_data2$obs - 0.06
+
+                pp <- p + geom_segment(aes(xend = pred, yend = obs, x = xend, y = yend), data = label_data, arrow = arrow(length = unit(0.02, "npc"))) +
+                    geom_text(data = label_data2, aes(x = xend, y = yend, label = str_replace(samples, 't_', '')), hjust=1, vjust=0, size = 5) 
+                ggsave(f_p('%s/%s.enet.external.tiff', results_dir, transcript_id), plot = pp, dpi = 300, width = 6, height = 7)
+            }
+        
+        }
+        
+        
+        return (list(cor_stats = cor_stats['pop_cor'], essentail_data = essentail_data, short_key_features = short_key_features))
     }else{
         return (list(cor_stats=rep(NA, times=4), short_key_features = NA ))
     }

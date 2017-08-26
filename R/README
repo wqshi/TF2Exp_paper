@@ -66,5 +66,8 @@ s_snyer_norm.R: Main normalization script. Output GEUVADIS.Gene.DATA_MATRIX.peer
 
 
 
+##Comapre the impact of common and rare variants as max impact variants in the selected features.
+s_cmp_common_and_rare_variants.R
+
 
 

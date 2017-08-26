@@ -25,25 +25,45 @@ if __doc__ is None:
     parser.add_argument("--chr_str", help="The chr wanted to compute", default="chr22")
     parser.add_argument("--target_mode", help="TF/All", default="TF")
     parser.add_argument('--batch_name', help = "462samples or 54samples", default = '445samples_sailfish' )
+    parser.add_argument('--add_penalty', help = "Should use HiC to calculate penalty.factor", default = 'TRUE' )
     parser.add_argument('--other_info', help = "minor mode", default = 'tradR2' )
     parser.add_argument('--last_gene', help = "Last gene name to check", default = 'ENSG00000269103' )
+    parser.add_argument('--new_batch', help = "New batch", default = '' )
     args = parser.parse_args()
     chr_str = args.chr_str
     target_mode = args.target_mode
     batch_name = args.batch_name
     other_info = args.other_info
     last_gene = args.last_gene
+    add_penalty = args.add_penalty
+    new_batch = args.new_batch
 else:
     target_mode = 'TF'
     other_info = 'tradR2'
     chr_str = 'chr22'
     batch_name = '445samples_sailfish'
     last_gene = 'ENSG00000269103'
+    add_penalty = 'TRUE'
+    new_batch = '358samples.snyder.norm'
+    
+if add_penalty != 'TRUE':
+    add_penalty_str = '_rm.YRI'
+else:
+    add_penalty_str = '_add.YRI'
+    
+if add_penalty == 'TRUE':
+    penalty_str = 'add.penalty' + add_penalty_str
+else:
+    penalty_str = 'rm.penalty' + add_penalty_str
+
+import re
 
 
+new_batch=new_batch.replace('_','.')
+loc_dir = 'rm.histone_model.cv.glmnet_add.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.TFMODE_other.info.normCor'.replace('TFMODE', target_mode).replace('normCor', other_info).replace('add.penalty', penalty_str).replace('445samples.snyder.norm', new_batch)
 
-loc_dir = 'rm.histone_model.cv.glmnet_add.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.TFMODE_other.info.normCor'.replace('TFMODE', target_mode).replace('normCor', other_info)
-
+print penalty_str
+print add_penalty
 full_result_dir = '%s/data/%s/rnaseq/%s/%s' % (project_dir, batch_name, chr_str, loc_dir)
 print project_dir
 print full_result_dir
@@ -60,7 +80,12 @@ else:
 
 
 while True:
-    gene_output = my.f_grep_files_from_dir(full_result_dir, '%s*.enet' % last_gene)
+
+    if os.path.exists(full_result_dir):
+        gene_output = my.f_grep_files_from_dir(full_result_dir, '%s.*enet$' % last_gene)
+    else:
+        gene_output = []
+
     
     if len(gene_output) == 0:
         time.sleep(time_interval)

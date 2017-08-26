@@ -33,7 +33,7 @@ def f_get_batch_output_dir(batch_name):
     return '%s/data/%s/' % (project_dir, batch_name)
 
 
-def f_get_tf_peak_list(project_dir, version = ''):
+def f_get_tf_peak_list(project_dir, version = 'processed'):
   
     tf_dir = '%s/data/raw_data/tf/encode_peaks/%s/' % (project_dir, version)
     peak_list_raw = my.f_shell_cmd( "find %s -name '*gm12878-*.narrowPeak'"%(tf_dir), quiet = True).split('\n')
@@ -110,5 +110,42 @@ def f_judge_debug(debug):
     import socket
     server_name = socket.gethostname()
     return debug == True and 'loire' in server_name
+
+def f_add_debug_point_in_loire(debug = False):
+    if f_judge_debug(debug):
+        import ipdb; ipdb.set_trace()
+
+def f_add_suffix_on_duplicates(dup_list):
+    from collections import Counter
+    counter = Counter()
+    deduped = []
+    for name in dup_list:
+        new = name  + ('.' + str(counter[name])) if counter[name] else name
+        counter.update({name: 1})
+        deduped.append(new)
+    return deduped
+
+
+def f_sync_scripts_to_run_server(target_server = 'clust'):
+    import subprocess
+    print ''
+    print 'Sync scripts ...........'
+    print ''
+
+    if target_server == 'clust':
+        target_str = 'shi@clustdell.cmmt.ubc.ca:/home/shi/'
+    else:
+        target_str = 'wenqiang@orcinus.westgrid.ca:/home/wenqiang/'
+    
+    
+    rsync_cmd1  = "rsync -rav --include '*.py' --exclude '*' /homed/home/shi/projects/expression_var/python/ %s/projects/expression_var/python/" % target_str
+    subprocess.call(rsync_cmd1,shell=True)
+
+
+
+
+
+
+
 
 

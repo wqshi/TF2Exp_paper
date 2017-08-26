@@ -48,7 +48,7 @@ f_check_na_rows(peaksMat_asinh)
 
 library(ggplot2)
 
-stop()
+
 p<- qplot(peaksMat[,1], (peaksMat_asinh[,1])^2) + xlab('Raw gene expression (TPM)') + ylab('Varaince stabilized (asinh(x))')
 ggsave('./data/r_results/expression_stabilization.tiff', plot = p)
 
@@ -127,9 +127,15 @@ for (peerFactor in peer_range){
     PEER_update(model)
 
     tiff(filename = f_p('%s/peer_no_cov%s.tif', snyder_original_dir, peerFactor))
-    PEER_plotModel(model)
+    #PEER_plotModel(model)
+    alpha = PEER_getAlpha(model)
+    plot(1/alpha,xlab="Factors",ylab="Variance of factor weights", type="b", col="blue", lwd=4, xaxp=c(1,length(alpha), length(alpha)-1),
+         cex.lab=1.5, cex.axis = 1.5)
+    
     dev.off()
 
+    f_peer_variance_plot(model)
+    
     factors = PEER_getX(model)
     weights = PEER_getW(model)
     precision = PEER_getAlpha(model)
@@ -149,7 +155,7 @@ write.table(write_data, file = f_p('%s/GEUVADIS.Gene.DATA_MATRIX', snyder_origin
 head(write_data[1:10, 1:4])
 
 
-stop() #For testing the plot_peer function
+#stop() #For testing the plot_peer function
 
 
 
@@ -158,6 +164,7 @@ snyder_norm_dir = f_p('./data/%s_snyder_norm/rnaseq/', batch_size)
 dir.create(snyder_norm_dir, recursive = T)
 
 peer_range = seq(from = 40, to =60, by = 10)
+peer_range = c(40)
 
 for (peerFactor in peer_range){
     flog.info('Hidden factor %s', peerFactor)
@@ -194,8 +201,11 @@ for (peerFactor in peer_range){
     PEER_update(model)
 
 
-    tiff(filename = f_p('%s/peer%s.tif', snyder_norm_dir, peerFactor), width = 1080, height = 1080)
-    PEER_plotModel(model)
+    tiff(filename = f_p('%s/peer%s.tif', snyder_norm_dir, peerFactor), width = 1080, height = 600)
+    #PEER_plotModel(model)
+    alpha = PEER_getAlpha(model)
+    plot(1/alpha,xlab="Factors",ylab="Variance of factor weights", type="b", col="blue", lwd=4, xaxp=c(1,length(alpha), length(alpha)-1),
+         cex.lab=1.5, cex.axis = 1.5)
     dev.off()
 
     cov_factors = PEER_getX(model)

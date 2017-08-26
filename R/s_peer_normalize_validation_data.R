@@ -12,30 +12,60 @@ source('s_gene_regression_fun.R')
 
 ##Read the ChIP-seq data
 
-binding_data_raw = read.table('/homed/home/shi/expression_var/R/data/raw_data/tf/pu1_47indivs.txt', sep = '\t', fill = TRUE,quote = "")
-binding_data = binding_data_raw
-head10(binding_data_raw)
-col_names  =gsub('.*(NA[0-9]*)[/].*','\\1',binding_data[1,])
-col_names[1] = 'PeakID'
-table(binding_data$Strand)
-colnames(binding_data) = col_names
-binding_data = subset(binding_data, Strand == '+')
+input_file = '/homed/home/shi/expression_var/R/data/raw_data/tf/pu1_47indivs.txt'
+factor_name = 'pu1'
+
+input_file = '/homed/home/shi/expression_var/R/data/raw_data/tf/pu1_47indivs.txt'
+factor_name = 'pu1'
 
 
-binding_data$PeakID = paste0( binding_data$Chr, '_', as.numeric(binding_data$Start)-1, '_', binding_data$End )
+f_preprocess_hommer_output <- function(input_file, factor_name){
 
-sample_cols = grep('(NA|HG)[0-9]+', colnames(binding_data),value = T)
-binding_matrix = binding_data[,c('PeakID', sample_cols)]
-head10(binding_matrix)
-write.table(binding_matrix, file = '/homed/home/shi/expression_var/R/data/raw_data/CEU47/pu1_raw.txt', quote =F, sep = '\t')
-
-
-id_col = 'PeakID'
-input_data = binding_matrix
-factor_name = 'PU1'
-output_dir = '/homed/home/shi/expression_var/data/raw_data/CEU47/'
+    binding_data_raw = read.table(input_file, sep = '\t', fill = TRUE,quote = "")
+    binding_data = binding_data_raw
+    head10(binding_data_raw)
+    col_names  =gsub('.*(NA[0-9].*)[/].*','\\1',binding_data[1,])
+    col_names[1] = 'PeakID'
+    table(binding_data$Strand)
+    colnames(binding_data) = col_names
+    binding_data = subset(binding_data, Strand == '+')
 
 
+    binding_data$PeakID = paste0( binding_data$Chr, '_', as.numeric(binding_data$Start)-1, '_', binding_data$End )
+
+    sample_cols = grep('(NA|HG)[0-9]+', colnames(binding_data),value = T)
+    binding_matrix = binding_data[,c('PeakID', sample_cols)]
+    head10(binding_matrix)
+    write.table(binding_matrix, file = f_p('/homed/home/shi/expression_var/R/data/raw_data/CEU47/%s_raw.txt', factor_name), quote =F, sep = '\t')
+    return (binding_matrix)
+
+
+}
+
+
+f_get_mean_of_replicates <- function(input_data){
+
+    
+    sample_cols = grep('NA', colnames(input_data), value = T)
+    sample_ids = unique(str_replace(sample_cols, '_Rep.*', ''))
+
+    new_data = data.frame(matrix(0, nrow = nrow(input_data), ncol = length(sample_ids)+1))
+    colnames(new_data) = c('PeakID', sample_ids)
+    new_data$PeakID = input_data$PeakID
+    loc_sample = sample_ids[1]
+
+    for(loc_sample in sample_ids){
+        match_cols = grep(loc_sample, sample_cols, value = T)
+        cat(match_cols,'\n')
+        if (length(match_cols) > 1){
+            new_data[,loc_sample] = apply(data.matrix(input_data[,match_cols]), 1, mean)
+        }else{
+            new_data[,loc_sample] = data.matrix(input_data[,match_cols])
+        }
+    }
+
+    return (new_data)
+}
 
 
 f_peer_normalize_data <- function(input_data, id_col, factor_name, output_dir, peer_factor = NULL, stablize_exp = FALSE, debug = TRUE){
@@ -80,8 +110,8 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 
                                         # 4) quantile normalize samples
     peaksMat_asinh_std_qn = normalize.quantiles(peaksMat_asinh_std)
-    rownames(peaksMat_asinh_std_qn) = rownames(rna_seq_raw_rmZero)
-    colnames(peaksMat_asinh_std_qn) = colnames(rna_seq_raw_rmZero)
+    rownames(peaksMat_asinh_std_qn) = rownames(peaksMat_asinh_std)
+    colnames(peaksMat_asinh_std_qn) = colnames(peaksMat_asinh_std)
 
 
 
@@ -127,10 +157,10 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
         
         cov_dummy=as.data.frame(predict(dummies, newdata = covariate))
 
-
+                
         print(colnames(cov_dummy))
         ##cov_dummy$gender.male = NULL
-        cov_dummy$genderfems_ale = NULL
+        cov_dummy$genderfemale = NULL
         ##cov_dummy$popCEU = NULL
         colSums(cov_dummy)
         ##PEER_setCovariates(model, as.matrix(cov_dummy[,c('gender.female', 'gender.male')]))
@@ -170,14 +200,45 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 }
 
 
+
+
+id_col = 'PeakID'
+output_dir = '/homed/home/shi/expression_var/data/raw_data/CEU47/'
+
+###PU1
+#factor_name = 'PU1'
+#input_data = f_preprocess_hommer_output(input_file, factor_name)
+#head10(input_data)
+
+
+factor_name = 'CTCF'
+input_data = f_preprocess_hommer_output('/homed/home/shi/expression_var/R/data/raw_data/CEU_CTCF/output.file', factor_name)
+mean_input = f_get_mean_of_replicates(input_data)
+
+
+
+
+
+
 #Test
 
-head10(input_data)
+
 hist(as.numeric(input_data[,2]))
 #f_peer_normalize_data(input_data, id_col, factor_name, output_dir, debug = F)
 #f_peer_normalize_data(input_data, id_col, factor_name, output_dir, peer_factor = 9, debug = F)
 
 
+dim(mean_input)
+
+
+##CTCF
+f_peer_normalize_data(mean_input, id_col, factor_name, output_dir, peer_factor = NULL, debug = F)
+f_peer_normalize_data(mean_input, id_col, factor_name, output_dir, peer_factor = 9, debug = F)
+
+
+
+
+stop()
 ##Normalize expression data
 expression_data = expression_47indivs = read.table('/homed/home/shi/expression_var/data/raw_data/CEU47/GEUVADIS.Gene.DATA_MATRIX', header = T, sep = ' ')
 

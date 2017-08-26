@@ -1,21 +1,29 @@
 source('s_project_funcs.R')
-chr_str = 'chr22'
+chr_str = 'chr6'
 #batch_name = '445samples_region'
 source('s_summary_fun.R')
 source('r_feature_analysis_fun.R', chdir = T)
-maf_table_raw = read.table('./data/raw_data/wgs/1kg/freq_stat.frq', header = T)
+f_percentage_table <- function(x){
+    print(x)
+    print(f_percentage(x))
+}
 library(dplyr)
+
+
+maf_table_raw = read.table('./data/raw_data/wgs/1kg/freq_stat.frq', header = T)
 
 
 #TF_model = 'rm.histone_model.cv.glmnet_rm.penalty_population.None_new.batch.445samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZeronoInteract'
 batch_name = '358samples_regionkeepLow_snpOnly'
 batch_name = '358samples_regionkeepLow'
-TF_model = "rm.histone_model.cv.glmnet_rm.penalty_rm.YRI_population.None_new.batch.358samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZero"
+#TF_model = "rm.histone_model.cv.glmnet_rm.penalty_rm.YRI_population.None_new.batch.358samples.snyder.norm_batch.mode.TF_other.info.tradR2keepZero"
+TF_model = 'rm.histone_model.cv.glmnet_rm.penalty_rm.YRI_population.None_new.batch.358samples.peer_batch.mode.TF_other.info.corR2keepZeroPopPeerRmdup'
 
-
-return_list_tf = f_summary_regression_results(batch_name, 'chr22', TF_model, rsync_flag = TRUE, return_features = TRUE)
+return_list_tf = f_summary_regression_results(batch_name, chr_str, TF_model, rsync_flag = FALSE, return_features = TRUE, debug = T)
 sum(return_list_tf$performance$performance > 0.05, na.rm = T)
 
+head(return_list_tf$control)
+head(return_list_tf$features)
 
 #Read loc of variants, MAF
 var_loc = read.table(f_p('./data/raw_data/wgs/1kg/maf/%s.loc', chr_str), sep = '\t', header = T)
@@ -24,12 +32,29 @@ var_maf = read.table(f_p('./data/raw_data/wgs/1kg/maf/%s.maf', chr_str), sep = '
 var_impact = read.table( f_p('./data/%s/deep_result/all/chrMerge2/evalue/%s.diff.gz', batch_name, chr_str), header = T, sep = ',')
 var_ref = read.table( f_p('./data/%s/deep_result/all/chrMerge2/evalue/%s.ref.gz', batch_name, chr_str), header = T, sep = ',')
 
+dim(var_maf)
+var_maf$id = paste0(var_maf$pos, ':', var_maf$ref, ':', var_maf$alt)
+var_maf = var_maf[!duplicated(var_maf$id),]
+dim(var_maf)
+head(var_maf)
 
 #Assign the SNPs impact and ref score to the feature region.
+
 var_feature_bed_subset = f_snp_and_impact_in_tf_features(return_list_tf$features, chr_str, var_loc, var_impact, var_maf, debug = F)
 dim(var_feature_bed_subset)
 head(var_feature_bed_subset)
-var_feature_bed_ref = f_snp_and_impact_in_tf_features(return_list_tf$features, chr_str, var_loc, var_ref, var_maf, debug = F)
+var_feature_bed_ref = f_snp_and_impact_in_tf_features(return_list_tf$control, chr_str, var_loc, var_ref, var_maf, debug = F)
+dim(var_feature_bed_ref)
+
+flog.info(f_p('%s out of %s variants miss maf', sum(is.na(var_feature_bed_subset$maf)), nrow(var_feature_bed_subset)))
+
+
+head(var_feature_bed_subset)
+var_feature_bed_subset$maf
+
+var_maf %>% filter(name == 'rs62403723')
+
+
 var_feature_bed_subset$ref = var_feature_bed_ref$impact
 f_ASSERT(all(var_feature_bed_ref$snp == var_feature_bed_subset$snp), 'Mis-match')
 
@@ -38,7 +63,6 @@ var_feature_bed_subset$sign_ratio = with(var_feature_bed_subset, impact/ref)
 
 var_feature_bed_subset$variant_type = 'common_snp'
 var_feature_bed_subset$variant_type[var_feature_bed_subset$maf < 0.05] = 'rare_var' 
-
 
 
 hist(var_feature_bed_subset$ref, main = 'Reference binding score', xlab = 'ref')
@@ -68,14 +92,19 @@ var_feature_bed_concise %>% group_by(variant_type, tf) %>% dplyr::summarize(mean
 variants_stats <- var_feature_bed_concise %>% group_by(gene, tf) %>% dplyr::summarize(max_imp = max(abs(impact)), index = variant_type[which.max(abs(impact))])
 
 flog.info('Table: the variantions in the selected TF regions')
-print(table(var_feature_bed_concise$variant_type))
+f_percentage_table(table(var_feature_bed_concise$variant_type))
 
 flog.info('Table: max impact variations')
-print(table(variants_stats$index))
+f_percentage_table(table(variants_stats$index))
 
 flog.info('Table: rare vs SNP in the whole population')
-print(table(var_maf$MAF > 0.05))
+f_percentage_table(table(var_maf$MAF > 0.05))
 
+
+a = as.matrix(table(var_feature_bed_concise$variant_type))
+b = as.matrix(table(variants_stats$index))
+
+fisher.test(cbind(a-b, b))
 
 stop()
 
@@ -97,11 +126,6 @@ for( target_gene in good_predictions$gene[1:10] ){
     f_test_preprocess_for_one_gene(target_gene, chr_str, batch_name, return_list_tf, var_feature_bed_subset, debug = F)
 }
 ###################Test done#####################################################
-
-
-
-
-
 
 
 ##Test the HiC fragments are complete.
@@ -141,9 +165,23 @@ deepsea_cols = grep( f_p('.*%s', key_tfs), colnames(indiv_het_impact), value = T
 
 head10(indiv_het_impact)
 deepsea_cols
-sum(indiv_het_impact[individual_snps_in_tf, deepsea_cols ])
+#sum(indiv_het_impact[individual_snps_in_tf, deepsea_cols ])
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

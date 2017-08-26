@@ -37,18 +37,30 @@ browser(expr=is.null(.ESSBP.[["@2@"]]))##:ess-bp-end:##
 
 
 
-collection_name = 'peer358cor'
-#collection_name = 'rmZero'
+#collection_name = 'peer358corRmdup'
+collection_name = 'validation'
 loc_batch_name = '358samples_regionkeepLow'
 
 
+
+factor_name = 'PU1'
+real_factor_name = 'PU.1'
+
+
+#factor_name = 'CTCF'
+#real_factor_name = 'CTCF'
+
+
 #################Load selected features and model performance#####################
-results_dir = f_p('./data/%s/rnaseq/results/', loc_batch_name)
+results_dir = f_p('./data/%s/rnaseq/results/%s/', loc_batch_name, collection_name)
 
 ##data stored by s_summary_regression_features.R
-load(file = f_p('%s/features_stats.%s', results_dir, collection_name)) 
+load(file = f_p('%s/features_stats', results_dir)) 
 
-features_merge = subset(features_stats$features, !is.na(feature_start))
+
+head(features_stats)
+
+features_merge = subset(features_stats, !is.na(feature_start) & mode == factor_name)
 features_merge$tf_rename = str_replace(features_merge$rename, '(enhancer|promoter)', '')
 table(features_merge$tf_rename)
 features_merge$location = 'promoter'
@@ -60,11 +72,10 @@ features_merge$tf_rename[features_merge$tf_rename == 'USF'] = 'USF.1'
 #sample_performance_merge = read.table(file = f_p('%s/sample_performance_merge.%s', results_dir, collection_name), header = T)
 sample_performance_merge = read.table(file = f_p('%s/sample_performance_merge', results_dir), header = T)
 
-tf_performance = subset(sample_performance_merge, mode == 'TF')
+tf_performance = subset(sample_performance_merge, mode == factor_name)
 rownames(tf_performance) = tf_performance$gene
 head(tf_performance)
 
-tf_performance$performance
 head(features_merge$rename)
 sort(table(features_merge$tf_rename))
 length(unique(features_merge$gene))
@@ -72,12 +83,12 @@ length(unique(features_merge$gene))
 
 library(tidyr)
 
-tf_feature_data = features_merge %>% filter(tf_rename == 'PU.1') %>%
+tf_feature_data = features_merge %>% filter(tf_rename == real_factor_name) %>%
     group_by(feature_start, feature_end, gene) %>% filter(score == max(score)) %>%
     unite(col = binding_id, chr, feature_start, feature_end, remove = F)
 
 best_features <- features_merge %>% group_by(gene) %>% summarise( best_score = score[which.max(abs(score))],
-                                                                 best_feature = tf_rename[which.max(abs(score))], feature_count = length(gene) ) %>% filter(best_feature == 'PU.1')
+                                                                 best_feature = tf_rename[which.max(abs(score))], feature_count = length(gene) ) %>% filter(best_feature == real_factor_name)
 
 dim(features_merge)
 head(features_merge)
@@ -87,9 +98,8 @@ dim(best_features)
 
 
 
-
 ##################Load deepsea data############################################
-deepsea_data = read.table('/homed/home/shi/expression_var/R/data/358samples_regionkeepLow/output/tf_variation/pu.csv',
+deepsea_data = read.table(f_p('/homed/home/shi/expression_var/R/data/358samples_regionkeepLow/output/tf_variation/%s_deepsea.txt', tolower(factor_name)),
                           header = T, sep = '\t', fill = TRUE, row.names = NULL, stringsAsFactors = F)
 rownames(deepsea_data) = paste0(deepsea_data$chr, '_', deepsea_data$start, '_', deepsea_data$end)
 deepsea_data_sub = deepsea_data[,4:449]
@@ -105,11 +115,8 @@ deepsea_data_sub = data.matrix(deepsea_data_sub)
 
 
 
-
-
-
 #########################Load PU1 binding data in 47 individuals#######################
-binding_data = read.table('/homed/home/shi/expression_var/R/data/raw_data/CEU47/peer9_PU1.txt', sep = ' ', fill = TRUE,quote = "", header = TRUE)
+binding_data = read.table( f_p('/homed/home/shi/expression_var/R/data/raw_data/CEU47/peer9_%s.txt', factor_name), sep = ' ', fill = TRUE,quote = "", header = TRUE)
 rownames(binding_data) = binding_data$PeakID#peak id might have duplicates
 #f_ASSERT( length(setdiff(tf_feature_data$binding_id, binding_data$PeakID )) ==0, 'Peak ID match problem!')
 #Ouput: binding data
@@ -142,7 +149,7 @@ shared_indivs = intersect(colnames(gene_expression), tf_individules)
 
 
 ######################Load Peak binding score and reference binding score####################
-tf_peak_score = read.table('/homed/home/shi/expression_var/R/data/raw_data/CEU47/pu1_peak_ref.txt', header = T )
+tf_peak_score = read.table(f_p('/homed/home/shi/expression_var/R/data/raw_data/CEU47/%s_peak_ref.txt', factor_name), header = T )
 tf_peak_score$PeakID = with(tf_peak_score, paste(chr, start, end, sep = '_'))
 rownames(tf_peak_score) = tf_peak_score$PeakID
 f_ASSERT( length(setdiff(tf_feature_data$binding_id, tf_peak_score$PeakID)) == 0, "Peak ID doesn't match")
@@ -175,11 +182,19 @@ hist(peak_variation_stats_44)
 dim(tf_peak_score)
 
 head(binding_data) #normalized 
-binding_matrix = read.table(file = '/homed/home/shi/expression_var/R/data/raw_data/CEU47/pu1_raw.txt', sep = '\t')
+binding_matrix = read.table(file = f_p('/homed/home/shi/expression_var/R/data/raw_data/CEU47/%s_raw.txt', factor_name), sep = '\t')
 rownames(binding_matrix) = binding_matrix$PeakID
 binding_matrix$PeakID = NULL
 
+dim(binding_matrix)
+head10(binding_matrix)
+
 tf_peak_score$binding_signal = rowMeans(binding_matrix[tf_peak_score$PeakID, ])/(tf_peak_score$end - tf_peak_score$start)
+dim(tf_peak_score)
+dim(binding_matrix)
+
+head(tf_peak_score)
+
 ggplot(tf_peak_score, aes(binding_signal, score)) + geom_point() + xlab('Mean binding signal') + ylab('Ref DeepSEA score')
 
 
@@ -306,7 +321,11 @@ hist(tf_feature_data$alteration_number)
 tf_feature_data_sub = tf_feature_data %>% ungroup() %>% filter(binding_id %in% names(which(peak_variation_stats_44 >= 3)))
 dim(tf_feature_data_sub)
 
-tf_feature_data_sub = tf_feature_data %>% ungroup() %>% arrange(-deepsea_sd) %>% filter(deepsea_sd > quantile(deepsea_sd, .80))
+
+
+sd_threshold = quantile(deepsea_sd, 0.90)
+
+tf_feature_data_sub = tf_feature_data %>% ungroup() %>% arrange(-deepsea_sd) %>% filter(deepsea_sd > sd_threshold )#quantile(deepsea_sd, .80))
 
 head(tf_feature_data_sub)
 dim(tf_feature_data_sub)
@@ -339,21 +358,29 @@ tf_feature_data_sub %>% summarise(
                         )
 
 
-
 dim(tf_feature_data_sub)
 tf_feature_data_sub %>% ungroup() %>% filter( tf_gene_fdr < fdr_threshold ) %>% mutate(tf_gene_flag = tf_gene_fdr < fdr_threshold,  tf_deepsea_flag = tf_deepsea_fdr < 0.05) %>%
-    select(binding_id, gene, stable_genes, score, tf_gene_fdr ,matches('tf.*_coef|_flag'), deepsea_sd, variant_count ) %>% as.data.frame()
+    select(binding_id, gene, stable_genes, score, tf_gene_fdr ,matches('tf.*_coef|_flag|pvalue'), deepsea_sd, variant_count ) %>% as.data.frame()
 
 colnames(tf_feature_data_sub)
 
 dim(tf_feature_data_sub)
+tf_feature_data_sub$factor = factor_name
+write.table(as.data.frame(tf_feature_data_sub), file = f_p('./data/raw_data/CEU47/%s_validation_results', factor_name), quote = FALSE, row.names =F)
+
+
+ggplot(tf_feature_data_sub %>% filter( tf_gene_fdr < 1), aes(tf_gene_coef, gene_deepsea_coef, alpha = 1, color = tf_gene_fdr < fdr_threshold )) + geom_point() + geom_abline()
 
 ggplot(tf_feature_data_sub %>% filter( tf_gene_fdr < fdr_threshold), aes(tf_gene_coef, gene_deepsea_coef, alpha = 1, size = tf_deepsea_fdr < fdr_threshold, color = -1 * variant_count )) + geom_point() + geom_abline()
 
-ggplot(tf_feature_data_sub %>% filter( tf_gene_fdr < fdr_threshold), aes(tf_gene_coef, gene_deepsea_coef, alpha = 1, size = tf_deepsea_fdr < fdr_threshold, color = -1 * variant_count )) + geom_point() + geom_abline()
+sig_tf_gene_pairs = tf_feature_data_sub %>% filter( tf_gene_fdr < 0.05)
+sig_tf_gene_pairs = tf_feature_data_sub
 
-sig_tf_gene_pairs = tf_feature_data_sub %>% filter( tf_gene_fdr < 0.05, tf_deepsea_fdr < 0.05)
-wilcox.test( sig_tf_gene_pairs$tf_gene_coef, sig_tf_gene_pairs$tf_deepsea_coef, paired = T)
+
+
+cor.test( sig_tf_gene_pairs$tf_gene_coef, sig_tf_gene_pairs$gene_deepsea_coef, paired = T)
+
+write(x = f_p("%s: %s selected features in %s individuals, %s above variance threshold", factor_name, nrow(tf_feature_data), length(shared_indivs), nrow(tf_feature_data_sub)), file = f_p('./data/raw_data/CEU47/%s_stats.txt', factor_name ))
 
 stop()
 
@@ -446,10 +473,6 @@ class(binding_data[1,])
 as.vec(binding_data[1,])
 
 sum(deepsea_data_sub[target_peak,shared_indivs] > 0.01)
-
-
-
-
 
 
 

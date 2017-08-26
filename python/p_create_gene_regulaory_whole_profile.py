@@ -251,9 +251,11 @@ if __name__ == "__main__":
     gene_regulatory_fragment_file = '%s/rnaseq/gene_regulatory_fragment.%s'  % (batch_output_dir, chr_str)
     f_combine_multiple_features_to_genes(data_path_merge, chr_str, hic_id_file, gene_regulatory_fragment_file, batch_output_dir, batch_name, debug = False)
     #This is only for the SNPs. Save this for the s_gene_split.
-    
-    if batch_name != 'test':
+    target_hic_snp_file = '%s/data/raw_data/wgs/1kg/additive_dir/assing_hic_id_to_SNP.%s' %(project_dir, chr_num)
+    if batch_name != 'test':# and os.path.exists(target_hic_snp_file):
         f_add_hicID_to_SNPs('SNP', SNP_path.ix['SNP', 'path'],chr_str, hic_id_file, gene_regulatory_fragment_file, batch_name)
+    else:
+        print 'Skip assign_hic_id_to_SNP'
 
 
 

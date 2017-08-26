@@ -24,6 +24,7 @@ library(stringr)
 library(gridExtra)
 source('~/R/s_ggplot2_theme.R', chdir = TRUE)
 source('./s_project_data.R')
+source('s_project_funcs.R')
 options(dplyr.width = Inf)
 
 
@@ -77,8 +78,13 @@ results_dir = f_p('./data/%s/rnaseq/results/%s/', loc_batch_name, collection_nam
 figure_dir = f_p('./data/%s/rnaseq/results/%s/figures', loc_batch_name, collection_name)
 dir.create(results_dir)
 
-paper_number_file = f_p('%s/model_performance.txt', results_dir)
-cat(collection_name, loc_batch_name, '\n', file = paper_number_file)
+
+perf_file = f_p('%s/performance_results.txt', results_dir)
+
+source('s_test_cat.R')
+f_write_paper_results('=====Performance file======', data = date(), file = perf_file)
+
+cat(collection_name, loc_batch_name, '\n', file = perf_file, append = T)
 
 #####################Collect the performance data.###############
 read_data = F
@@ -175,6 +181,7 @@ tf_stats <- sample_performance_merge %>% filter(mode == 'TF') %>%
                      CHB_count = sum(!is.na(CHB)), CHB_mean = mean(CHB, na.rm = T),
                      JPT_count = sum(!is.na(JPT)), JPT_mean = mean(JPT, na.rm = T)
                      )
+tf_stats
 
 tf_good_stats <- sample_performance_merge %>% filter(mode == 'TF', performance > threshold) %>%
     dplyr::summarise(Total = length(mode),
@@ -205,16 +212,17 @@ random_stats <- sample_performance_merge %>% filter(mode == 'random') %>%
 table(sample_performance_merge$mode)
 
 #print(intersect_stats)
+f_write_paper_results('Raw numbers from TF models', tf_stats, perf_file, scientific = T)
+f_write_paper_results('Paper numbers',
+                      f_p('Total %s, good %s, average hic %s, average TF binding events %s',
+                          tf_stats$Total, tf_stats$good_predictions, tf_stats$mean_hic, tf_stats$mean_input_feature), perf_file)
+
 write.table(format(as.data.frame(basic_stats), digits = 3), f_p('%s/basic_stats.txt', results_dir), quote = FALSE, sep = '\t', row.names = FALSE)
 write.table(format(as.data.frame(tf_good_stats), digits = 3), f_p('%s/predictable_tf_stats.txt', results_dir), quote = FALSE, sep = '\t', row.names = FALSE)
 write.table(format(as.data.frame(random_stats), digits = 3), f_p('%s/random_stats.txt', results_dir), quote = FALSE, sep = '\t', row.names = FALSE)
 write.table(format(as.data.frame(tf_good_stats), digits = 3), f_p('%s/tf_good_stats.txt', results_dir), quote = FALSE, sep = '\t', row.names = FALSE)
 
 ##########################Overall stats done#########################################
-
-
-
-
 
 
 
@@ -271,9 +279,9 @@ performance_sort <- sample_performance_merge %>% arrange(mode, performance) %>%
     filter(mode %in% c('TF', 'random', 'TFaddPenalty', 'TFaddInteract'))
 random_tf_plot <-
     ggplot(performance_sort, aes(rank, performance, color = mode)) + geom_point(size = 0.1) +
-    theme_Publication( base_size = 12) + 
+    theme_Publication( base_size = 15) + 
     theme(legend.position = c(0.2,0.8), legend.direction = 'vertical') + geom_hline(yintercept=0.05, linetype = '1F') +
-    xlab('Cumulative percentage of investigated genes in each model') + ylab('Model Performance (R2)') + 
+    xlab('Cumulative percentages of investigated genes') + ylab('Model Performance') + 
     #scale_y_continuous(breaks=c(0,0.05,0.2,0.4,0.6,0.8)) +
     scale_x_continuous(labels=percent, limits = c(0, 1)) + 
     scale_color_discrete( labels = c("Control", "TF2Exp", "Add TF-TF interaction", 'Add HiC'), guide = guide_legend(override.aes = list(size=2), title = NULL))
@@ -284,18 +292,19 @@ plot(hic_plot)
 ggsave(f_p('%s/hic_plot.tiff', figure_dir), width =7, height =7, plot = hic_plot)
 
 SNP_All_plot = f_plot_performance_and_stats_test(good_performance, 'SNP', 'All')
-f_plot_performance_and_stats_test(good_performance, 'SNP', 'TF')
+f_plot_performance_and_stats_test(good_performance, 'SNP', 'TF', test_stats = T)
 f_plot_performance_and_stats_test(good_performance, 'SNP', 'SNPinTF')
 f_plot_performance_and_stats_test(good_performance, 'SNP', 'TF.snp')
 
 
-f_plot_performance_and_stats_test(good_performance, 'TF.snp', 'TFsnpMatch')
-
-f_plot_performance_and_stats_test(sample_performance_merge, 'TF.snp', 'TFsnpMatch')
-
-f_plot_performance_and_stats_test(sample_performance_merge, 'TF.snp', 'SNPinTF')
 
 
+#f_plot_performance_and_stats_test(sample_performance_merge, 'TF.snp', 'TFsnpMatch')
+
+#f_plot_performance_and_stats_test(sample_performance_merge, 'TF.snp', 'SNPinTF')
+
+
+f_plot_performance_and_stats_test(sample_performance_merge, 'TF' ,'TFaddInteract', publication = F)
 TF_interaction_plot <- f_plot_performance_and_stats_test(sample_performance_merge, 'TF' ,'TFaddInteract', publication = F)
 ggsave(filename = f_p('%s/tf_interaction_plot.tiff', figure_dir), plot = TF_interaction_plot, width = 7, height = 7, units = 'in')
 
@@ -331,9 +340,9 @@ f_plot_performance_and_stats_test(good_performance, 'SNP', 'TF.snp', publication
 
 
 
-SNPinTF_TFsnp_plot = f_plot_performance_and_stats_test(good_performance, 'SNPinTF', 'TF.snp', publication = T)
+SNPinTF_TFsnp_plot = f_plot_performance_and_stats_test(good_performance, 'SNPinTF', 'TF.snp', publication = 'Normal')
 
-snp_tf_cmp <- SNPinTF_TFsnp_plot + xlab('R2 of SNP-based models on SNPinTF data set') + ylab('R2 of TF2Exp on SNPinTF data set')
+snp_tf_cmp <- SNPinTF_TFsnp_plot + xlab('Model performance of SNP-based models on SNPinTF data set') + ylab('Model performace of TF2Exp on SNPinTF data set')
 snp_tf_cmp
 
 
@@ -355,6 +364,38 @@ TF_TF.SNP_plots$density
 
 
 #output:
+
+hic_tf_cmp_stats = f_plot_performance_and_stats_test(sample_performance_merge, 'TFaddPenalty', 'TF', test_stats = T)
+
+cat('Compare addPenalty with TF model in all genes (addPenalty - TF model), p-value (two sided)', hic_tf_cmp_stats$pvalue, 'Median performance diff',
+    hic_tf_cmp_stats$median_difference, 'Mean performance diff', hic_tf_cmp_stats$mean_diff, '\n', file = perf_file, append = T)
+
+
+interaction_tf_cmp_stats = f_plot_performance_and_stats_test(sample_performance_merge, 'TF', 'TFaddInteract', test_stats = T)
+cat('Compare TF and TFinteract model in all genes (first - second), p-value (two sided)', interaction_tf_cmp_stats$pvalue, 'Median performance diff',
+    interaction_tf_cmp_stats$median_difference, 'Mean performance diff', interaction_tf_cmp_stats$mean_diff, '\n', file = perf_file, append = T)
+
+
+SNP_TFsnp_stats = f_plot_performance_and_stats_test(good_performance, 'SNP', 'TF.snp', test_stats = T)
+cat('Compare SNP and TF.SNP model in well predicted genes (first - second), p-value (two-sided)', SNP_TFsnp_stats$pvalue, 'Median performance diff',
+    SNP_TFsnp_stats$median_difference, 'Mean performance diff', SNP_TFsnp_stats$mean_diff, 'Percentage improvment', SNP_TFsnp_stats$mean_diff/SNP_TFsnp_stats$mean2, '\n', file = perf_file, append = T)
+
+
+
+SNP_TFsnp_stats = f_plot_performance_and_stats_test(sample_performance_merge, 'SNP', 'TF.snp', test_stats = T)
+cat('Compare SNP and TF.SNP model in all genes (first - second), p-value (two-sided)', SNP_TFsnp_stats$pvalue, 'Median performance diff',
+    SNP_TFsnp_stats$median_difference, 'Mean performance diff', SNP_TFsnp_stats$mean_diff, '\n', file = perf_file, append = T)
+
+
+SNPinTF_TFsnp_stats = f_plot_performance_and_stats_test(sample_performance_merge, 'SNPinTF', 'TF.snp', test_stats = T)
+cat('Compare SNPinTF with TF.SNP in all genes, p-value', SNPinTF_TFsnp_stats$pvalue, 'Median performance diff',
+    SNPinTF_TFsnp_stats$median_difference, 'Mean performance diff', SNPinTF_TFsnp_stats$mean_diff, '\n', file = perf_file, append = T)
+
+SNPinTF_TFsnp_stats = f_plot_performance_and_stats_test(good_performance, 'SNPinTF', 'TF.snp', test_stats = T)
+cat('Compare SNPinTF with TF.SNP in shared predictable genes, p-value', SNPinTF_TFsnp_stats$pvalue, 'Median performance diff',
+    SNPinTF_TFsnp_stats$median_difference, 'Mean performance diff', SNPinTF_TFsnp_stats$mean_diff, '\n', file = perf_file, append = T)
+
+
 ggsave(filename = f_p('%s/perf_tf_and_random.tiff', figure_dir), plot = random_tf_plot, width = 7, height = 7, units = 'in')
 
 ggsave(filename = f_p('%s/cmp_tf_snp.tiff', figure_dir), plot = snp_tf_cmp, width = 7, height = 7, units = 'in')
@@ -368,7 +409,6 @@ ggsave(filename = f_p('%s/rare_plots.tiff', figure_dir), plot = rare_plots, widt
 
 
 ###########################Pairwise comparisn done#################################
-
 
 
 
@@ -392,6 +432,12 @@ plot_performance = subset(tf_performance_merge, performance > threshold)
 
 f_plot_values_against_performance(plot_performance, 'mean_exp')
 perf_var_plot <- f_plot_values_against_performance(plot_performance, 'var')
+perf_var_stats <- f_plot_values_against_performance(plot_performance, 'var', test_stats =T)
+perf_var_stats
+
+cat('Corelate the performance of gene and variance of gene expression, pvalue:', perf_var_stats$pvalue, 'Cor-coef:',
+    perf_var_stats$coef, '\n', file = perf_file, append = T)
+
 var_plot <- perf_var_plot + theme_Publication(12) + xlab('Model performance') + ylab('Variance of gene expression')
 plot(var_plot)
 ggsave(filename = f_p('%s/var_plot.tiff', figure_dir), plot = var_plot, width = 7, height = 7, units = 'in')
@@ -411,22 +457,24 @@ head(all_gene_loc)
 
 rownames(all_gene_loc) = all_gene_loc$ensembl_gene_id
 
-great_genes <- sample_performance_merge %>% filter(mode == 'TF', performance > 0.5) %>%
-    dplyr::select(gene, performance)
+great_genes <- sample_performance_merge %>% filter(mode == 'TF', performance > 0.4)%>%
+    arrange(-performance) %>% dplyr::select(gene, performance)
 head(great_genes)
-
-great_bed = all_gene_loc[str_replace(great_genes$gene, '[.].*', ''), 1:5 ]
+dim(great_genes)
+head(all_gene_loc)
+great_bed = all_gene_loc[str_replace(great_genes$gene, '[.].*', ''), c(1:5,7) ]
 head(great_bed)
-colnames(great_bed) = c('gene', 'chr', 'start', 'end', 'strand')
+colnames(great_bed) = c('gene', 'chr', 'start', 'end', 'strand', 'name')
 great_bed$tss_start = great_bed$start
 great_bed$tss_start[ great_bed$strand == '-1' ] = great_bed[ great_bed$strand == '-1', 'end' ]
 
 great_bed$chr = paste0('chr', great_bed$chr)
-
+great_bed$name = paste0(great_bed$gene, ':', great_bed$name)
 head(great_bed)
 
 bed_data <- great_bed %>% mutate( bed_start = as.numeric(tss_start) - 500, bed_end = as.numeric(tss_start) + 500 ) %>% dplyr::select(chr, bed_start, bed_end)
-write.table(great_bed[,c( 'chr', 'start', 'end', 'gene')], file = f_p('%s/genes_for_great.bed', results_dir), quote = F, sep = '\t', row.names = F, col.names = F)
+write.table(great_bed[1:400,c( 'chr', 'start', 'end', 'gene')], file = f_p('%s/genes_for_great.bed', results_dir), quote = F, sep = '\t', row.names = F, col.names = F)
+write.table(great_bed[1:400,c( 'chr', 'start', 'end', 'name')], file = f_p('%s/genes_for_great2.bed', results_dir), quote = F, sep = '\t', row.names = F, col.names = F)
 
 
 stop()

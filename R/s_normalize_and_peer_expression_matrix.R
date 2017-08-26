@@ -3,25 +3,16 @@ source('~/R/s_function.R', chdir = TRUE)
 #install.packages('preprocessCore')
 #source("http://bioconductor.org/biocLite.R")
 #biocLite("preprocessCore")
+source('s_project_funcs.R')
 library(preprocessCore)
 library(matrixStats)
 library(reshape2)
 
-f_row_scale <- function(df){
-    return (t(scale(t(df))))
-}
-
-f_quantile <- function(input_data){
-
-    data_quantile = normalize.quantiles(as.matrix(input_data))
-    colnames(data_quantile) = colnames(input_data)
-    rownames(data_quantile) = rownames(input_data)
-    return (data_quantile)
-}
 
 
-
-batch_name = '462samples_sailfish'
+sample_size = '462samples'
+sample_size = '445samples'
+batch_name = f_p('%s_sailfish', sample_size)
 #batch_name = '54samples_evalue'
 batch_output_dir = f_p('./data/%s/', batch_name)
 
@@ -78,7 +69,7 @@ cat('Check it right:', '\n')
 #ENSG00000177663.9  0.2461960 -0.6264528 -0.7476451
 #ENSG00000235478.1 -0.3305492  4.4925357 -0.3305492
 print(write_data[selected_genes, selected_indivs])
-write.table(write_data, file = './data/462samples_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+#write.table(write_data, file = './data/462samples_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
 
 
 
@@ -90,23 +81,28 @@ write.table(write_data, file = './data/462samples_quantile/rnaseq/GEUVADIS.Gene.
 rnaseq_rmNA = rna_seq_raw[rowSums(is.na(rna_seq_raw)) == 0,]
 cat('Keep', nrow(rnaseq_rmNA), 'out of ', nrow(rna_seq_raw) , 'none-NA genes \n')
 
+
+##Remove the sex genes
 library(stringr)
 sex.entrezgene = read.table('./data/raw_data/rnaseq/sex.ensemble.genes',sep='\t', header = TRUE)
 row.names(sex.entrezgene) = sex.entrezgene$ensembl_transcript_id
 
-rnaseq_rmNA$gene = str_replace( row.names(rnaseq_rmNA) )
+rnaseq_rmNA$gene_id = rownames(rnaseq_rmNA)
+rownames(rnaseq_rmNA)  = str_replace( row.names(rnaseq_rmNA), '[.][0-9]*', '')
 
-grep(sex_pattern, rownames(rnaseq_rmNA), invert = TRUE)
-head10(rnaseq_rmNA)
+
+autosome_genes = setdiff(rownames(rnaseq_rmNA), sex.entrezgene$ensembl_transcript_id)
+cat('Keep', length(autosome_genes) , 'out of', nrow(rnaseq_rmNA), '\n')
+
+rnaseq_rmNA = rnaseq_rmNA[autosome_genes,]
+rownames(rnaseq_rmNA) = rnaseq_rmNA$gene_id
+rnaseq_rmNA$gene_id = NULL
+
 
 
 
 rnaseq_clean = rnaseq_rmNA[(rowSds(as.matrix(rnaseq_rmNA)) != 0),]
 cat('Keep', nrow(rnaseq_clean), 'out of ', nrow(rnaseq_rmNA) , 'zero expressed genes \n')
-
-
-
-
 
 
 
@@ -120,11 +116,32 @@ gene = data.frame( gene = rownames(clean_quantile_scale) )
 write_data = cbind(gene, clean_quantile_scale)
 rownames(write_data) = write_data$gene
 #head(write_data[,1:10])
-write.table(write_data, file = './data/462samples_quantile_rmNA/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+#write.table(write_data, file = './data/462samples_quantile_rmNA/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+
+f_heatmap_genes <- function(loc_data, output_file){
+    library(gplots)
+    tiff(output_file, width = 7, height = 7, units = 'in', res = 300)
+    subset_index = sample(rownames(loc_data), size = 2000)
+    library('RColorBrewer')
+    RdBu_color <- colorRampPalette(brewer.pal(n = 10, "RdBu"))
+    heatmap.2(loc_data[subset_index,], trace = 'none', main ='Random 2000 genes', col = RdBu_color(256) )
+    dev.off()
+}
+
+f_heatmap_genes(clean_quantile_scale, './data/462samples_quantile_rmNA/rnaseq/gene_expression.tiff')
+
+cat('Case 2', '\n')
+
+################Case 2.5 Random the qunatile_rmNA data#################
+#Case 2.5
+#randomrize the quantile expression.
+permutate_names = sample(x =1:nrow(write_data), size = nrow(write_data))
+random_data = write_data
+random_data$gene = write_data[permutate_names, 'gene']
+#write.table(random_data, file = './data/462samples_quantile_random/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
 
 
-
-
+stop()
 ################################
 ################################
 #Case 3: variance stablize before quantile_rmNA
@@ -138,12 +155,90 @@ asinh_scale = f_row_scale(asinh_quantile)
 
 gene = data.frame( gene = rownames(asinh_scale) )
 asinh_write_data = cbind(gene, asinh_scale)
-write.table(asinh_write_data, file = './data/462samples_var_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+#write.table(asinh_write_data, file = './data/462samples_var_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+cat('Case 3', '\n')
+
+
+##############################
+#Case 4:
+#Remove the genes with 25% zeros -> log transfor the TPM -> quantile normalization
+#This one we would have only 11k genes left.
+dim(rnaseq_clean)
+#rnaseq_rmZero = rnaseq_clean[rowSums(rnaseq_clean == 0) <= 0.25 * ncol(rnaseq_clean),]
+rnaseq_rmZero = rnaseq_clean[rowSums(rnaseq_clean == 0) <= 0,]
+cat('Keep', nrow(rnaseq_rmZero), 'out of ', nrow(rnaseq_clean) , ' expressed genes less 25% zero expressed individuals \n')
+rnaseq_log = log(rnaseq_rmZero, base = 10)
+
+rnaseq_log_quantile = f_quantile(rnaseq_log)
+rnaseq_log_std = f_row_scale(rnaseq_log_quantile)
+head10(rnaseq_log_std)
+gene = data.frame( gene = rownames(rnaseq_log_quantile) )
+log_write_data = cbind(gene, rnaseq_log_std)
+#write.table(log_write_data, file = './data/462samples_log_quantile/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+
+
+
+######################
+#Case 5
+#randomrize the expression.
+
+head10(log_write_data)
+permutate_names = sample(x =1:nrow(log_write_data), size = nrow(log_write_data))
+random_data = log_write_data
+random_data$gene = log_write_data[permutate_names, 'gene']
+#write.table(random_data, file = './data/462samples_random/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
+
+
+stop()
+
+
+
+
+sample_cols = sort(grep('(NA|HG)[0-9]+', colnames(log_write_data),value = T))
+input_data = data.frame(t(log_write_data[1,sample_cols]))
+sample_info = read.table(f_p('./data/462samples/chr_vcf_files/integrated_call_samples_v3.20130502.ALL.panel'), header = TRUE, row.names = 1)
+input_data[,'population'] = as.character(sample_info[rownames(input_data), c('pop')])
+colnames(input_data) = c('expression', 'population')
+
+############Plot a random set of gene distribution, to check the data problems.#########
+data_list = list(log=as.data.frame(rnaseq_log_std), quantile=as.data.frame(clean_quantile_scale ))
+library(gridExtra)
+plot_list = list()
+sample_info = read.table(f_p('./data/462samples/chr_vcf_files/integrated_call_samples_v3.20130502.ALL.panel'), header = TRUE, row.names = 1)
+set.seed(669)
+selected_genes = sample(rownames(rnaseq_log_std), size = 50)
+loc_gene = selected_genes[1]
+data_name = names(data_list)[1]
+for (loc_gene in selected_genes){
+    plot_list = list()
+    cat('=====', loc_gene, '====\n')
+    for (data_name in names(data_list)){
+        loc_data = data_list[[data_name]]
+        class(loc_data)
+        head(loc_data)
+        input_data = data.frame(t(loc_data[loc_gene, sample_cols]))
+        dim(input_data)
+        input_data[,'population'] = as.character(sample_info[rownames(input_data), c('pop')])
+        colnames(input_data) = c('expression', 'population')
+        head(input_data)
+        hist_plot  <-ggplot(input_data, aes(expression)) + geom_histogram(binwidth = 0.2, colour = "black", fill = "white") +
+            facet_wrap(~population) + ggtitle(f_p('%s: %s',loc_gene, data_name))
+        density_plot  <- ggplot(input_data, aes(expression, color = population)) + geom_histogram(binwidth = 0.2, colour = "black", fill = "white")
+        plot_list[[paste0(data_name,'-hist')]] = hist_plot
+        plot_list[[paste0(data_name,'-density')]] = density_plot
+    }
+    #str(plot_list, max.level = 1)
+    final_plot <-arrangeGrob( grobs =  plot_list, ncol=2, nrow = 2)
+    tiff(f_p('./data/r_results/cmp_normal_distributions/%s.tif', loc_gene), width = 720, height = 720)
+    plot(final_plot)
+    dev.off()
+    #break
+}
 
 
 
 stop()
-#################################
+#################################x
 #################################
 
 
@@ -166,7 +261,7 @@ PEER_plotModel <- function(model){
 
 
 
-peaksMat = as.matrix(rna_seq_raw)
+peaksMat = as.matrix(rnaseq_clean)
 peaksMat_asinh = asinh(peaksMat) 
 
 peer_model = PEER()
@@ -211,12 +306,7 @@ gene = rownames(residuals_t)
 
 gene_matrix = cbind(gene, residuals_t_scale)
 
-write.table(gene_matrix, file = './data/462samples_peer/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
-
-
-
-
-
+#write.table(gene_matrix, file = './data/462samples_peer/rnaseq/GEUVADIS.Gene.DATA_MATRIX', quote = FALSE, sep = ' ', row.names = FALSE, col.names = TRUE)
 
 
 

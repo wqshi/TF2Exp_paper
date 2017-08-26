@@ -38,7 +38,7 @@ opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
 str(opt)
-
+print(getwd())
 if (is.null(opt$batch_name)){
     ##batch_name = '54samples_evalue'
     ##batch_name = '462samples_genebody'
@@ -79,9 +79,14 @@ if (is.null(opt$batch_name)){
     #gene = 'ENSG00000179133.7'#The gene showing negative trad R2 (-254) in chr10.
  
     #gene = 'ENSG00000184117.7' # For plot, shows continious range of prediction socre.
+    #gene = 'ENSG00000000003.10' #chrX gene
+    #gene = 'ENSG00000187624.7' # chr17, best in TF
+    #gene = 'ENSG00000186470.9' #chr6
+    #gene = 'ENSG00000204632.7'
+    #gene = 'ENSG00000124588.15' #Chr6 NQO2
     add_penalty = FALSE
     chr_str = 'chr22'
-    #chr_str = 'chr10'
+    #chr_str = 'chr6'
     add_TF_exp_only=FALSE
     add_predict_TF=FALSE
     add_YRI=FALSE
@@ -112,7 +117,7 @@ if (is.null(opt$batch_name)){
     #rmdup_flag = TRUE
 
     #other_info = 'corR2keepZeroPopPeerRmdupPU1'
-    other_info = 'corR2keepZeroPopPeerRmdup'
+    opt$other_info = 'corR2keepZeroPopPeerRmdup'
     
 }else{
     batch_name = opt$batch_name
@@ -135,7 +140,6 @@ if (is.null(opt$batch_name)){
     new_batch = opt$new_batch
     batch_mode = opt$batch_mode
     
-    other_info = opt$other_info
     tuneGrid = tuneGridList[[train_model]]
     nfolds = 10
 }
@@ -173,7 +177,7 @@ if (!exists("test_gene") | T){
     test_gene$read_data()
     test_gene$subset_features_to_snp_contain_region(batch_mode, debug = F)
 
-    test_individuals = test_gene$get_validation_samples(other_info)
+    test_individuals = test_gene$get_validation_samples(opt$other_info)
     
     batch_size = str_replace(batch_name, 'samples.*', '')
     test_batch_name=str_replace(batch_name, batch_size, '800')
@@ -185,7 +189,6 @@ if (!exists("test_gene") | T){
 }
 
 expression_data = test_gene$data
-
 
 colnames(expression_data)
 
@@ -207,10 +210,8 @@ sample_info = read.table(f_p('%s/chr_vcf_files/integrated_call_samples_v3.201305
 #Read the miRNA interaction and expression data.
 #miRNA_expression = read.table('./data/raw_data/miRNA/GD452.MirnaQuantCount.1.2N.50FN.samplename.resk10.txt', header = TRUE)
 
-
 non_sample_cols = setdiff(colnames(expression_data), sample_cols)
 #sample_cols = intersect(sample_cols, colnames(miRNA_expression))
-
 
 #Read the TF expression data.
 tf_gene_id = read.table('./data/raw_data/rnaseq/tf_ensemble_id.txt', header = T, stringsAsFactors = FALSE)
@@ -242,7 +243,10 @@ for (i in 1:length(genes_names)){
     dim(transcript_data)
 
     if (rmdup_flag){
+        duplicated_rows=f_duplicated_rows(transcript_data[,c('feature', 'feature_start', 'feature_end', 'gene')])
+        transcript_data[duplicated_rows,1:100]
         transcript_data <- transcript_data %>% dplyr::arrange(gene, -cor ) %>% distinct(feature, feature_start, feature_end, gene, .keep_all = T) %>% as.data.frame
+        
     }
     
     table(transcript_data$type)
@@ -466,10 +470,17 @@ for (i in 1:length(genes_names)){
 
     if (fit$max_performance > 0.4){
         a=f_plot_model_data(mean_prediction, plot_title = f_p('%s \n R-squared: %.2f', transcript_id, fit$max_performance),
-                            save_path = f_p('%s/%s.enet.tif', results_dir, transcript_id), debug = F)
+                            save_path = f_p('%s/%s.enet.tif', results_dir, transcript_id), debug = T)
+        if (gene == "ENSG00000186470.9"){
+            high_gene_plot <-ggplot(mean_prediction, aes(x = pred, y = obs)) + geom_point() + xlim(range(mean_prediction$obs)) +
+        theme_Publication(base_size = 14) + xlab('Predicted gene expression by TF2Exp') + ylab('Observed gene expression')
+        }
+        
+    
+        
     }
 
-    external_list = f_test_in_other_pop(fit, final_data, test_samples, train_samples, batch_name, debug = F)
+    external_list = f_test_in_other_pop(fit, final_data, test_samples, train_samples, batch_name, debug = T)
 
 
     cor_nums = external_list$cor_stats

@@ -3,20 +3,23 @@
 library(bnlearn)
 source('~/R/s_function.R', chdir = TRUE)
 library(doMC)
-registerDoMC(cores = 6)
-library(caret)
+
+library(stringr)
 #install.packages('doMC')
 
 
 #my_train = final_train_data
 #target_col = 'gene.RNASEQ'
 
+
 f_caret_regression_return_fit <- function(my_train, target_col, learner_name, quite=FALSE)
 {
   
   #cl <- makeCluster(3)
   #registerDoSNOW(cl)
-
+    registerDoMC(cores = 4)
+    library(caret)
+    
     dim(my_train)
     head(my_train)
     zero_cols = nearZeroVar(my_train, freqCut = 90/10)
@@ -87,21 +90,27 @@ library("optparse")
 
 option_list = list(
     make_option(c("--batch_name"),      type="character", default=NULL, help="dataset file name", metavar="character"),
-    make_option(c("--remove_histone"), type="character", default='TRUE', help="output file name [default= %default]", metavar="character"),
+    make_option(c("--add_histone"), type="character", default='TRUE', help="output file name [default= %default]", metavar="character"),
+    make_option(c("--add_miRNA"), type="character", default='TRUE', help="Add miRNA or not", metavar="character"),
     make_option(c("--test"), type="character", default=NULL, help="output file name [default= %default]", metavar="character")
 );
+
 
 opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
+
 if (is.null(opt$batch_name)){
-    batch_name = '54samples_gene'
-    remove_histone = FALSE
+    batch_name = '54samples_peer'
+    add_histone = TRUE
+    add_miRNA = TRUE
     test_flag = TRUE
 }else{
     batch_name = opt$batch_name
-    remove_histone = opt$remove_histone == 'TRUE'
+    add_histone = opt$add_histone == 'TRUE'
+    add_miRNA = opt$add_miRNA == 'TRUE'
     test_flag = opt$test == 'TRUE'
+    cat('Test flag :', test_flag, '\n')
 }
 
 chr_str = 'chr22'
@@ -157,24 +166,21 @@ length(genes_names)
 print(genes_names[1:20])
 
 prediction_performance = data.frame(gene = 'mean', performance = '0', stringsAsFactors = F)
-i = 2
-transcript_id = 'ENST00000498133.1'
-
 
 sample_info = read.table(f_p('%s/chr_vcf_files/integrated_call_samples_v3.20130502.ALL.panel', output_dir ), header = TRUE, row.names = 1)
-head(sample_info)
 
-dim(sample_info[sample_cols,])
-
-dim(rna_data)
 
 sample_cols = grep('(NA|HG)[0-9]+', colnames(expression_data), value = TRUE)
 
-print(sample_cols)
+#Read the miRNA interaction and expression data.
 
+miRNA_target_table = read.table('/homed/home/shi/expression_var/data/raw_data/miRNA/miRNA_ensemble.txt', header = TRUE)
+miRNA_expression = read.table('/homed/home/shi/expression_var/data/raw_data/miRNA/GD452.MirnaQuantCount.1.2N.50FN.samplename.resk10.txt', header = TRUE)
+
+i = 1
 
 for (i in 1:length(genes_names)){
-    if(i == 500 & test_flag == TRUE){
+    if(i == 50 & test_flag == TRUE){
         print( 'First 500 genes')
         break
     }
@@ -187,8 +193,6 @@ for (i in 1:length(genes_names)){
     dim(transcript_data)
 
     
-
-
     head(transcript_data)
     table(transcript_data$feature)
     train_data = transcript_data[,sample_cols]
@@ -202,14 +206,30 @@ for (i in 1:length(genes_names)){
     train_data_rmdup = train_data[!duplicated(train_data),]
 
     train_data2 = as.data.frame(t(train_data_rmdup))
-
-    if (remove_histone == TRUE){
+    head(train_data2)
+    if (add_histone == FALSE){
         none_histone_cols = grep('H3K',colnames(train_data2), value = TRUE, invert = TRUE)
         final_train_data = train_data2[, none_histone_cols]
     }else{
         final_train_data  = train_data2
     }
-   
+
+
+    head(miRNA_target_table)
+    dim(train_data2)
+    
+    related_miRNAs = subset(miRNA_target_table, ensembl_gene_id == str_split(transcript_id, '[.]')[[1]][1] )$miRNA
+
+    if(length(related_miRNAs) > 0){
+        cat('Transcript', transcript_id, '\n')
+        miRNA_expression$TargetID = as.character(miRNA_expression$TargetID)
+        correlated_miRNA_expression = subset(miRNA_expression, TargetID %in% related_miRNAs )[, c('TargetID', sample_cols)]
+        row.names(correlated_miRNA_expression) = correlated_miRNA_expression$TargetID
+        cat('Add miRNA to the training:', as.character(correlated_miRNA_expression$TargetID), '\n')
+        correlated_miRNA_expression$TargetID = NULL
+        final_train_data = cbind(final_train_data, t(correlated_miRNA_expression[rownames(final_train_data)]))
+    }
+
     #ead(final_train_data)
     colnames(final_train_data)
     
@@ -244,7 +264,7 @@ for (i in 1:length(genes_names)){
 }
 
 
-output_file = f_p('%s/output/lasso.prediction.%s.%s.%s.txt', output_dir, chr_str, model_str, ifelse(remove_histone, 'remove_histone', '') )
+output_file = f_p('%s/output/lasso.prediction.%s.%s.%s.%s.txt', output_dir, chr_str, model_str, ifelse(add_histone,  'addHis', 'rmvHis'), ifelse(add_miRNA, 'addMiR', 'rmvMiR') )
 prediction_performance= prediction_performance[-1,]
 prediction_performance$performance = as.numeric(prediction_performance$performance)
 prediction_performance['mean',] =c('mean', mean(prediction_performance[complete.cases(prediction_performance),]$performance))

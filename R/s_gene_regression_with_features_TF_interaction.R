@@ -93,7 +93,7 @@ cat('The number of regulated transcripts:', length(regulated_genes_names), '\n')
 #Get the inverstigeed genes
 genes_names = intersect(expressed_transcripts, regulated_genes_names)
 cat('The number of investigated transcripts:', length(genes_names), '\n')
-0
+
 
 length(genes_names)
 

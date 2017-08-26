@@ -1,17 +1,54 @@
-
-#Run the TF predictions
-batch_name='462samples_quantile_rmNA'
-test_flag='FALSE' #binary
-model='glmnet'
-chr_str='chrTF'
+####################Using 462sample_log as base to fit the 462_peer model ####################################
+#batch_name='462samples_quantile_rmNA'
+#batch_name='445samples_sailfish'
+batch_name='445samples_rareVar'
 gene='gene'
 add_miRNA='FALSE'
 add_TF_exp='FALSE'
-add_permutation='FALSE'
+
 add_TF_exp_only='FALSE'
 add_predict_tf='FALSE'
-#sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf
-#exit 0
+add_TF_exp_only='FALSE'
+add_YRI='TRUE'
+chr_str='chr22'
+population='all'
+TF_exp_type='fakeTF'
+model='cv.glmnet'
+add_gm12878='TRUE'
+##new_batch='462samples_snyder_original'
+
+new_batch='445samples_snyder_norm'
+#new_batch='445samples_snyder_original'
+
+#other_info='rmdup'#??
+#other_info='hic8'#Filter enhacer regions with hic score 0.8
+#other_info='rmCor'
+other_info='normCor'
+#other_info='lambda500'
+
+test_flag='FALSE' 
+ #binary
+#chr_array=({22..1})
+chr_array=(22 10 2)
+#chr_array=(22)
+add_penalty='TRUE'
+for chr_num in ${chr_array[@]}
+do
+    chr_str='chr'$chr_num
+    mode_list=('random' 'AlltfShuffle' 'SNP' 'all' 'TF' 'TFShuffle' 'SNPinTF' 'noInteract' 'fakeInteract')
+    #mode_list=('All' 'SNP' 'SNPinTF' 'TF' 'AlltfShuffle' 'noInteract')
+    #mode_list=('randomSNPinTF')
+    #mode_list=('AlltfShuffle' 'AllsnpShuffle')
+    mode_list=('All' 'TF' 'SNP')
+    for new_batch_random in ${mode_list[@]}
+    do
+        sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_penalty $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878 $new_batch $new_batch_random $other_info
+    done
+done
+
+exit 0
+
+
 
 
 ############Compare the gm12878 corrected or not ######################
@@ -32,10 +69,9 @@ model='glmnet'
 
 add_gm12878='TRUE'
 sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878
+
 add_gm12878='FALSE'
 sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878
-
-
 
 exit 0
 
@@ -112,9 +148,10 @@ chr_str='chr22'
 population='all'
 add_miRNA='FALSE'
 TF_exp_type='fakeTF'
+add_gm12878='FALSE'
 
 batch_name='462samples_random'
-#sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type
+sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation $add_TF_exp_only $add_predict_tf $add_YRI $population $TF_exp_type $add_gm12878
 
 
 batch_name='54samples_evalue'
@@ -285,7 +322,6 @@ add_permutation='FALSE'
 
 
 sh ./s_start_cluster_gene_job.sh $batch_name $test_flag $model $chr_str $gene $add_miRNA $add_TF_exp $add_permutation 
-
 
 
 

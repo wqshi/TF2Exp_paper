@@ -80,6 +80,27 @@ sample_performance_merge = read.table(file = f_p('%s/sample_performance_merge', 
 
 
 
+####Write key features and performance of the gene######
+features_write = features_stats$features
+features_write$tf_rename = str_replace(features_write$rename, '(enhancer|promoter)', '')
+features_write$location = 'promoter'
+features_write$location[ grepl('enhancer', features_write$rename) ] = 'distal'
+features_write$location[ is.na(features_write$feature_start)] = NA
+
+features_write$tf_rename[features_write$tf_rename == 'PU'] = 'PU.1'
+features_write$tf_rename[features_write$tf_rename == 'USF'] = 'USF.1'
+
+features_write_select = features_write %>% select(gene, chr, feature_start, feature_end, tf_rename, location, score) %>%
+    rename(tf = tf_rename)
+
+performance_write = features_stats$performances %>% select(gene, train_performance, performance, alpha, lambda)
+head(performance_write)
+git_data_dir = './data/results/'
+write.table(features_write_select, file = f_p('%s/features_all', git_data_dir),quote = FALSE, sep='\t', row.names = FALSE)
+write.table(performance_write, file = f_p('%s/performance_all', git_data_dir),quote = FALSE, sep='\t', row.names = FALSE)
+
+head(features_stats$performances)
+
 
 
 #################: Compare the coefficient in promoter and enhancer regions#############
@@ -100,11 +121,12 @@ well_features_merge %>% filter(abs(score) < 1e-4) %>% nrow()
 #Test the coef difference in promoter and distal regions.
 promoter_coef = subset(well_features_merge, location == 'promoter')$score
 enhancer_coef = subset(well_features_merge, location == 'enhancer')$score
-wilcox_test = wilcox.test( abs(promoter_coef) , abs(enhancer_coef), alternative = 'greater')
+wilcox_test = wilcox.test( abs(promoter_coef) , abs(enhancer_coef), alternative = 'two.sided', conf.int = T)
 
 f_write_paper_results('Test abs(promoter_coef) > abs(enhancer_coef), p-value:', wilcox_test$p.value, output_file)
 f_write_paper_results('Mean promoter coef:', mean(abs(promoter_coef)), output_file)
 f_write_paper_results('Mean enhancer coef:', mean(abs(enhancer_coef)), output_file)
+f_write_paper_results('Estimated median enhancer coef:', wilcox_test$estimate, output_file)
 f_write_paper_results('Number of loction:', table(well_features_merge$location), output_file)
 
 
@@ -166,6 +188,8 @@ down_tfs = c('SMC3', 'STAT1', 'BCLAF1')
 label_data2[down_tfs, 'enhancer'] = label_data2[down_tfs, 'enhancer'] - 0.04
 label_data2['BCLAF1', 'promoter'] = label_data2['BCLAF1', 'promoter'] + 0.03
 point_color = 'black'
+point_color = '#00BFC4'
+point_color = 'skyblue4'
 
 pos_ratio_plot <- ggplot(plot_data, aes(promoter, enhancer)) + geom_point(color = point_color) + geom_abline(alpha = 0.3) +
     geom_text(data = label_data2, aes(x = promoter, y = enhancer + 0.02, label = tf)) + xlim(c(0.15, 0.95)) + ylim(c(0.15, 0.95)) +
@@ -174,9 +198,10 @@ pos_ratio_plot
 
 #Test: TF in promoter are more positive than distal regions
 cor.test(plot_data$promoter, plot_data$enhancer, 'g')
-promoter_test = wilcox.test(plot_data$promoter, plot_data$enhancer, 'g')
+promoter_test = wilcox.test(plot_data$promoter, plot_data$enhancer, 'two.sided')
 print(promoter_test)
-#Not selected in the manuscript. As the role of TF is complex determined by context.
+f_write_paper_results('Test more positive in promoter than in enhancer, p-value:', promoter_test$p.value, output_file)
+##Not selected in the manuscript. As the role of TF is complex determined by context.
 ###################################################################################
 
 
@@ -223,11 +248,25 @@ add_fake_line$feature_dis = -27000
 add_fake_line$score = 0
 
 
+str(features_merge)
+features_merge$Score = features_merge$score
 
-distal_plot<-ggplot(features_merge, aes(feature_dis, score)) + geom_point(alpha = 0.1, color=point_color) + facet_wrap(~location_rename, nrow = 2, scales = 'free_x') +
-    theme_Publication(12) + xlab('Feature distance to the gene start site') + ylab('Feature effect size')
+features_merge2 = features_merge[,c('Score', 'feature_dis')]
+colnames(features_merge2) = colnames(failwith)
+
+str(features_merge2)
+
+colSums(is.na(features_merge2))
 
 
+
+distal_plot<-
+    ggplot(data=features_merge, aes(y=score, x=feature_dis)) + geom_point(alpha = 0.1, color=point_color, size = 1) +
+    geom_density2d(bins = 3, colour = 'green')+
+    facet_wrap(~location_rename, nrow = 2, scales = 'free_x') +# scale_size(range = c(0, 0.3)) + 
+    theme_Publication(12) + xlab('Feature distance to the gene start site') + ylab('Feature effect size') 
+
+ggsave(f_p('%s/feature_coef_promoter_enhaner.tiff', figure_dir), plot = distal_plot, width =7, height = 7, dpi = 72)
 ##Output
 #distal_plot <- ggplot(features_merge, aes(sign(feature_dis)*log10(abs(feature_dis)), color = location)) + geom_freqpoly() + theme_Publication(12)
 
@@ -238,7 +277,6 @@ distal_plot2 <-ggplot(features_merge, aes(feature_dis)) + geom_density() + theme
     xlab('Feature distance to the gene start site')
 
 
-
 library(gridExtra)
 tiff(f_p('./%s/feature_coef.tiff', figure_dir), res = 310, width = 10, height = 5, units='in')
 #feature_coef_plot <- arrangeGrob(distal_plot, pos_ratio_plot, ncol = 2)
@@ -246,6 +284,14 @@ grid.arrange(arrangeGrob(distal_plot, pos_ratio_plot, ncol = 2))
 grid.text(label = '(A)',x=unit(0.02, "npc"), y=unit(0.98, "npc"), gp=gpar(fontsize=12))
 grid.text(label = '(B)',x=unit(0.52, "npc"), y=unit(0.98, "npc"), gp=gpar(fontsize=12))
 dev.off()
+
+tiff(f_p('./%s/feature_distance_coef.tiff', figure_dir), res = 310, width = 10, height = 5, units='in')
+#feature_coef_plot <- arrangeGrob(distal_plot, pos_ratio_plot, ncol = 2)
+grid.arrange(arrangeGrob(distal_plot, coef_box_plot, ncol = 2))
+grid.text(label = '(A)',x=unit(0.02, "npc"), y=unit(0.98, "npc"), gp=gpar(fontsize=12))
+grid.text(label = '(B)',x=unit(0.52, "npc"), y=unit(0.98, "npc"), gp=gpar(fontsize=12))
+dev.off()
+
 
 
 ###Output:
@@ -503,7 +549,8 @@ f_write_paper_results('At lease % genes has one DHS', top_feature_data %>% filte
 feature_freq_plot <- 
     ggplot(data=top_feature_data, aes(x=tf_rename, y=value, fill = group)) + #geom_line(aes(y = cum, group =1)) +
   geom_bar(stat="identity", position = 'dodge') + theme_Publication(12) +  theme(axis.text.x = element_text(angle = 90, size = 8,hjust = 1, vjust = 0)) +
-    xlab('Features') + ylab('Times selected by TF2Exp models') + theme(legend.position = c(0.8,0.8), legend.direction = 'vertical') 
+    xlab('Features') + ylab('Times selected by TF2Exp models') + theme(legend.position = c(0.8,0.8), legend.direction = 'vertical') +
+    scale_fill_discrete("") + theme( axis.text.x = element_text(face="bold", size=10))
 
 feature_freq_plot
 ggsave(f_p('%s/feature_freq.tiff', figure_dir), plot = feature_freq_plot, width = 7, height = 4.5)

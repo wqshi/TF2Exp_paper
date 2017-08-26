@@ -12,7 +12,8 @@ opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
 if (is.null(opt$batch_name)){
-    batch_name = '462samples_sailfish_quantile'
+    #batch_name = '462samples_sailfish_quantile'
+    batch_name = '462samples_log_quantile'
     remove_histone = TRUE
     test_flag = TRUE
 }else{
@@ -41,7 +42,7 @@ cat('Number of transcripts', length(unique(expression_data$gene)), '\n')
 cat('Number regulatory regions and empty fragment ids', '\n')
 table(expression_data$type, expression_data$hic_fragment_id == '.')
 table(expression_data$type, expression_data$feature)
-table(unlist(table(expression_data$gene)))
+#table(unlist(table(expression_data$gene)))
 colnames(expression_data)
 
 
@@ -54,7 +55,7 @@ colnames(expression_data)
 
 rna_data = subset(expression_data, feature == 'RNASEQ')
 rownames(rna_data) = rna_data$gene
-expressed_transcripts = rownames(rna_data)[rowSums(rna_data[, sample_cols]) > 0]
+expressed_transcripts = rownames(rna_data)#[rowSums(rna_data[, sample_cols]) > 0]
 cat('The number of expressed transcripts:', length(expressed_transcripts), '\n')
 head(rna_data)
 #str(rna_data)
@@ -65,7 +66,7 @@ head(rna_data)
 gene_with_regulatory_elements = as.data.frame.matrix(table(expression_data$gene, expression_data$feature))
 head(gene_with_regulatory_elements)
 str(gene_with_regulatory_elements, max.level = 1)
-regulated_genes_names = rownames(gene_with_regulatory_elements)[ rowSums(gene_with_regulatory_elements) > 20]
+regulated_genes_names = rownames(gene_with_regulatory_elements)[ rowSums(gene_with_regulatory_elements) > 10]
 cat('The number of regulated transcripts:', length(regulated_genes_names), '\n')
 
 #Get the inverstigeed genes
@@ -92,19 +93,16 @@ head(expression_data[,1:10])
 expression_data[is.na(expression_data)] = 0
 sample_cols = grep('(NA|HG)[0-9]+', colnames(expression_data), value = TRUE)
 
-library(doMC)
-registerDoMC(cores = 7)
-zero_cols = (rowSums(expression_data[, sample_cols]==0) >50)
-sum(zero_cols)
-head(expression_data[zero_cols, sample_cols])
-expression_data_subset = expression_data[!zero_cols,]
+#library(doMC)
+#registerDoMC(cores = 7)
 
-head(expression_data_subset[,1:10])
-
-gene_stats <- expression_data_subset %>% group_by(gene) %>% summarise(nrow = length(chr), pol2 = sum(feature == 'POL2') , promoter = sum(type == 'promoter'), features = length(unique(feature))  ,hic_id = length(unique(hic_fragment_id)))
+gene_stats <- expression_data %>% group_by(gene) %>% summarise(nrow = length(chr), pol2 = sum(feature == 'POL2') , promoter = sum(type == 'promoter'), features = length(unique(feature))  ,hic_id = length(unique(hic_fragment_id)))
 gene_stats = as.data.frame(gene_stats)
 row.names(gene_stats) = gene_stats$gene
 gene_stats$gene = NULL
+
+cat('Mean number of HiC fragments:', mean(gene_stats$hic_id), '\n')
+
 
 
 

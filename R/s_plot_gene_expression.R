@@ -15,7 +15,7 @@ f_read_expression_data <- function(chr_str, data_dir){
 
 
 sailfish_data = f_read_expression_data('chr22', '462samples_sailfish')
-quantile_data = f_read_expression_data('chr22', '462samples_sailfish_quantile')
+quantile_data = f_read_expression_data('chr22', '462samples_quantile_rmNA')
 peer_data = f_read_expression_data('chr22', '462samples_snyder_norm')
 
 cat('Size of expression data:', dim(peer_data), '\n')
@@ -23,8 +23,10 @@ cat('Size of expression data:', dim(peer_data), '\n')
 colnames(peer_data)
 
 set.seed(11)
-selected_genes = sample(sailfish_data$transcript_id, 50)
 
+top20=read.table(f_p('./data/462samples_snyder_norm/rnaseq/chr22/top20'))
+selected_genes = sample(sailfish_data$transcript_id, 50)
+selected_genes =  str_replace(row.names(top20), '[.][0-9]+', '')
 
 library(reshape2)
 sample_cols = grep('(HG|NA)[0-9]', colnames(peer_data), value = TRUE)
@@ -73,7 +75,7 @@ for (loc_gene in unique(merge_data$transcript_id)){
     
 
    gene_data = f_sort_by_col(gene_data, index = 'value')
-  hist_plot<-ggplot(gene_data) + geom_histogram(aes(value, ..density..), binwidth = 0.2, colour = "black", fill = "white")
+   hist_plot<-ggplot(gene_data) + geom_histogram(aes(value, ..density..), binwidth = 0.2, colour = "black", fill = "white")
   
     
     for (i in 1:dens$parameters$variance$G ){
