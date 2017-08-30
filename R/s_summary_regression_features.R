@@ -95,7 +95,10 @@ features_write_select = features_write %>% select(gene, chr, feature_start, feat
 
 performance_write = features_stats$performances %>% select(gene, train_performance, performance, alpha, lambda)
 head(performance_write)
+
+#git_data_dir = './data/results/'
 git_data_dir = '../results/'
+
 write.table(features_write_select, file = f_p('%s/features_all', git_data_dir),quote = FALSE, sep='\t', row.names = FALSE)
 write.table(performance_write, file = f_p('%s/performance_all', git_data_dir),quote = FALSE, sep='\t', row.names = FALSE)
 
